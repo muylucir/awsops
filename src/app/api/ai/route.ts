@@ -157,6 +157,16 @@ function needsInfra(message: string): boolean {
   return keywords.some(k => lower.includes(k));
 }
 
+// Data & Analytics keywords → route to Data Gateway
+function needsData(message: string): boolean {
+  const lower = message.toLowerCase();
+  const keywords = ['dynamodb','dynamo','rds','aurora','mysql','postgres','postgresql',
+    'database','데이터베이스','db instance','db cluster','elasticache','valkey','redis',
+    'memcached','cache cluster','replication group','msk','kafka','broker','topic',
+    'partition','consumer','producer','스트리밍'];
+  return keywords.some(k => lower.includes(k));
+}
+
 // Security keywords → route to Security Gateway (IAM)
 function needsSecurity(message: string): boolean {
   const lower = message.toLowerCase();
@@ -196,13 +206,13 @@ function needsIaC(message: string): boolean {
 // AWS resource overview keywords → Steampipe + Bedrock direct
 function needsAWSData(message: string): boolean {
   const lower = message.toLowerCase();
-  const keywords = ['ec2','s3','rds','vpc','lambda','k8s','elb',
-    'instance','bucket','서버','네트워크','데이터베이스','현황','리소스','pod'];
+  const keywords = ['ec2','s3','vpc','lambda','k8s','elb',
+    'instance','bucket','서버','네트워크','현황','리소스','pod'];
   return keywords.some(k => lower.includes(k));
 }
 
 // AgentCore Runtime invoke with gateway selection
-async function invokeAgentCore(message: string, gateway: 'infra' | 'ops' | 'iac' | 'cost' | 'monitoring' | 'security' = 'ops'): Promise<string | null> {
+async function invokeAgentCore(message: string, gateway: 'infra' | 'ops' | 'iac' | 'cost' | 'monitoring' | 'security' | 'data' = 'ops'): Promise<string | null> {
   try {
     const command = new InvokeAgentRuntimeCommand({
       agentRuntimeArn: AGENT_RUNTIME_ARN,
@@ -261,6 +271,7 @@ export async function POST(request: NextRequest) {
     const useCodeInterpreter = needsCodeInterpreter(lastMessage);
     const useInfra = needsInfra(lastMessage);
     const useIaC = needsIaC(lastMessage);
+    const useDataAnalytics = needsData(lastMessage);
     const useSecurity = needsSecurity(lastMessage);
     const useMonitoring = needsMonitoring(lastMessage);
     const useCost = needsCost(lastMessage);
@@ -343,7 +354,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Route 1: Security → AgentCore Runtime (Security Gateway)
+    // Route 1: Data & Analytics → AgentCore Runtime (Data Gateway)
+    if (useDataAnalytics) {
+      const agentResponse = await invokeAgentCore(lastMessage, 'data');
+      if (agentResponse) {
+        return NextResponse.json({
+          content: agentResponse,
+          model: 'sonnet-4.6',
+          via: 'AgentCore Runtime → Data Gateway (24 tools)',
+          queriedResources: ['data-gateway'],
+        });
+      }
+    }
+
+    // Route 2: Security → AgentCore Runtime (Security Gateway)
     if (useSecurity) {
       const agentResponse = await invokeAgentCore(lastMessage, 'security');
       if (agentResponse) {

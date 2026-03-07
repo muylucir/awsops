@@ -22,6 +22,7 @@ GATEWAYS = {
     "cost": "https://awsops-cost-gateway-uanqtckgzm.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "monitoring": "https://awsops-monitoring-gateway-lal7vj9ozv.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "security": "https://awsops-security-gateway-orxxph0a0s.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "data": "https://awsops-data-gateway-vnm22bj3ji.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
 }
 DEFAULT_GATEWAY = "ops"
 GATEWAY_REGION = "ap-northeast-2"
@@ -50,6 +51,14 @@ You have MCP tools for:
 - AWS Knowledge: search documentation, check regional availability
 - Core MCP: execute AWS CLI commands, get solution design guidance
 Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
+
+    "data": """You are AWSops Data & Analytics Specialist, an expert in AWS databases and streaming.
+You have MCP tools for:
+- DynamoDB: list/describe tables, query/scan, data modeling guidance, cost estimation
+- RDS: list/describe instances and clusters (MySQL/PostgreSQL/Aurora), SQL via Data API
+- ElastiCache/Valkey: clusters, replication groups, serverless caches, best practices
+- MSK Kafka: clusters, brokers, configurations, bootstrap endpoints, best practices
+Always recommend the right database for the workload. Format in markdown. Respond in the user's language.""",
 
     "security": """You are AWSops Security Specialist, an expert in AWS IAM and security.
 You have MCP tools for:
