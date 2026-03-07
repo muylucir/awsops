@@ -146,12 +146,13 @@ async function executeCodeInterpreter(code: string): Promise<{ output: string; e
   }
 }
 
-// Network troubleshooting keywords → always route to AgentCore (has MCP tools)
-function needsAgentCore(message: string): boolean {
+// Infrastructure keywords → route to Infra Gateway (network + EKS)
+function needsInfra(message: string): boolean {
   const lower = message.toLowerCase();
   const keywords = ['eni','reachability','연결 확인','경로 분석','flow log','플로우','route table',
     '라우트','라우팅','security group rule','sg rule','보안그룹 규칙','vpn','트러블슈팅','troubleshoot',
-    'network path','네트워크 경로','connectivity','연결성','find ip','ip 찾','ip 검색'];
+    'network path','네트워크 경로','connectivity','연결성','find ip','ip 찾','ip 검색',
+    'eks','kubernetes','k8s cluster','클러스터','node group','pod log','container insight'];
   return keywords.some(k => lower.includes(k));
 }
 
@@ -173,7 +174,7 @@ function needsAWSData(message: string): boolean {
 }
 
 // AgentCore Runtime invoke with gateway selection
-async function invokeAgentCore(message: string, gateway: 'network' | 'ops' | 'iac' | 'all' = 'ops'): Promise<string | null> {
+async function invokeAgentCore(message: string, gateway: 'infra' | 'ops' | 'iac' | 'all' = 'ops'): Promise<string | null> {
   try {
     const command = new InvokeAgentRuntimeCommand({
       agentRuntimeArn: AGENT_RUNTIME_ARN,
@@ -230,7 +231,7 @@ export async function POST(request: NextRequest) {
 
     const lastMessage = messages[messages.length - 1]?.content || '';
     const useCodeInterpreter = needsCodeInterpreter(lastMessage);
-    const useAgentCore = needsAgentCore(lastMessage);
+    const useInfra = needsInfra(lastMessage);
     const useIaC = needsIaC(lastMessage);
     const needsData = needsAWSData(lastMessage);
 
@@ -284,15 +285,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Route 0: Network troubleshooting → AgentCore Runtime (Network Gateway)
-    if (useAgentCore) {
-      const agentResponse = await invokeAgentCore(lastMessage, 'network');
+    // Route 0: Infrastructure (network + EKS) → AgentCore Runtime (Infra Gateway)
+    if (useInfra) {
+      const agentResponse = await invokeAgentCore(lastMessage, 'infra');
       if (agentResponse) {
         return NextResponse.json({
           content: agentResponse,
           model: 'sonnet-4.6',
-          via: 'AgentCore Runtime → Network Gateway (3 tools)',
-          queriedResources: ['network-gateway'],
+          via: 'AgentCore Runtime → Infra Gateway (12 tools)',
+          queriedResources: ['infra-gateway'],
         });
       }
       // Fall through to Bedrock if AgentCore fails

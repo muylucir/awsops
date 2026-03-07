@@ -16,7 +16,7 @@ app = BedrockAgentCoreApp()
 
 # Gateway URLs by role (route.ts selects which one to use)
 GATEWAYS = {
-    "network": "https://awsops-network-gateway-oimomguf7x.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "infra": "https://awsops-network-gateway-oimomguf7x.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "ops": "https://awsops-ops-gateway-ybcvjkwu71.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "iac": "https://awsops-iac-gateway-i0vlfltmwu.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     # Legacy: single gateway with all tools
@@ -34,11 +34,12 @@ model = BedrockModel(
 
 # Role-specific system prompts
 SYSTEM_PROMPTS = {
-    "network": """You are AWSops Network Specialist, an expert in AWS networking and troubleshooting.
+    "infra": """You are AWSops Infrastructure Specialist, an expert in AWS networking, EKS, and infrastructure troubleshooting.
 You have MCP tools for:
 - VPC Reachability Analyzer: analyze network paths between resources
 - Flow Monitor: query VPC flow logs for traffic analysis
 - Network MCP: describe security groups, NACLs, route tables, subnets, VPCs
+- EKS MCP: list clusters, VPC config, insights, CloudWatch logs/metrics, IAM roles, app manifests, troubleshooting
 Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
 
     "ops": """You are AWSops Operations Assistant, an expert in AWS cloud operations.
