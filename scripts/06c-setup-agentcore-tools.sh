@@ -6,9 +6,9 @@ set -e
 #                                                                              #
 #   Creates:                                                                   #
 #     1. IAM Role for Lambda (network permissions)                             #
-#     2. Lambda functions (7: reachability, flow-monitor, network-mcp,         #
-#        steampipe-query, aws-knowledge, core-mcp, iac-mcp)                             #
-#     3. Gateway Targets (7) linking Lambda to Gateway via MCP                 #
+#     2. Lambda functions (8: reachability, flow-monitor, network-mcp,         #
+#        steampipe-query, aws-knowledge, core-mcp, iac-mcp, terraform-mcp)                             #
+#     3. Gateway Targets (8) linking Lambda to Gateway via MCP                 #
 #                                                                              #
 #   Known issues handled:                                                      #
 #     - Gateway toolSchema uses inlinePayload (not OpenAPI)                   #
@@ -550,11 +550,93 @@ aws lambda add-permission --function-name awsops-iac-mcp \
 
 echo "  Lambda: awsops-iac-mcp (CFn validate + troubleshoot + CDK docs)"
 
+# Deploy terraform-mcp Lambda (provider docs, module search, best practices)
+echo ""
+echo -e "  ${YELLOW}NOTE: terraform-mcp provides provider docs + module search via Terraform Registry API${NC}"
+
+cat > /tmp/aws_terraform_mcp.py << 'LAMBDAEOF'
+import json, urllib.request
+
+AWS_IA_MODULES = [
+    {"name":"terraform-aws-bedrock","description":"Amazon Bedrock module","url":"https://registry.terraform.io/modules/aws-ia/bedrock/aws/latest"},
+    {"name":"terraform-aws-opensearch-serverless","description":"OpenSearch Serverless","url":"https://registry.terraform.io/modules/aws-ia/opensearch-serverless/aws/latest"},
+    {"name":"terraform-aws-sagemaker-endpoint","description":"SageMaker endpoints","url":"https://registry.terraform.io/modules/aws-ia/sagemaker-endpoint/aws/latest"},
+    {"name":"terraform-aws-serverless-streamlit","description":"Serverless Streamlit","url":"https://registry.terraform.io/modules/aws-ia/serverless-streamlit/aws/latest"},
+]
+
+TF_BEST_PRACTICES = "# Terraform AWS Best Practices\n- Use modules for reusable components\n- Remote state (S3+DynamoDB)\n- Pin provider/module versions\n- AWSCC provider for newer resources\n- Enable encryption, least-privilege IAM\n- Run terraform fmt/validate + checkov before commits"
+
+def search_docs(prefix, name):
+    payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"aws___search_documentation","arguments":{"search_phrase":prefix+" "+name,"limit":5}}}).encode()
+    req = urllib.request.Request("https://knowledge-mcp.global.api.aws", data=payload, headers={"Content-Type":"application/json","Accept":"application/json"})
+    with urllib.request.urlopen(req, timeout=15) as resp: data = json.loads(resp.read().decode())
+    return "\n".join(c.get("text","") for c in data.get("result",{}).get("content",[]) if c.get("type")=="text")
+
+def search_module(url, version=None):
+    mid = url.split("/modules/")[1] if "/modules/" in url else url
+    api = "https://registry.terraform.io/v1/modules/{}".format(mid) + ("/"+version if version else "")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(api, headers={"Accept":"application/json"}), timeout=10) as resp:
+            d = json.loads(resp.read().decode())
+        root = d.get("root",{})
+        return {"name":d.get("name",""),"version":d.get("version",""),"description":d.get("description",""),
+            "inputs":[{"name":v["name"],"type":v.get("type",""),"required":v.get("required",False)} for v in root.get("inputs",[])],
+            "outputs":[o["name"] for o in root.get("outputs",[])]}
+    except Exception as e: return {"error":str(e)}
+
+def lambda_handler(event, context):
+    params = event if isinstance(event, dict) else json.loads(event)
+    t = params.get("tool_name",""); args = params.get("arguments", params)
+    if not t:
+        if "asset_name" in params and "awscc" in params.get("asset_name",""): t = "SearchAwsccProviderDocs"
+        elif "asset_name" in params: t = "SearchAwsProviderDocs"
+        elif "module_url" in params: t = "SearchUserProvidedModule"
+        elif "query" in params: t = "SearchSpecificAwsIaModules"
+        elif "command" in params: t = "ExecuteTerraformCommand"
+        else: t = "terraform_best_practices"
+        args = params
+    if t == "SearchAwsProviderDocs":
+        return {"statusCode":200,"body":search_docs("Terraform AWS provider", args.get("asset_name",""))[:50000]}
+    elif t == "SearchAwsccProviderDocs":
+        return {"statusCode":200,"body":search_docs("Terraform AWSCC provider", args.get("asset_name",""))[:50000]}
+    elif t == "SearchSpecificAwsIaModules":
+        q = args.get("query","").lower()
+        mods = [m for m in AWS_IA_MODULES if q in m["name"] or q in m["description"].lower()] or AWS_IA_MODULES
+        return {"statusCode":200,"body":json.dumps(mods, indent=2)}
+    elif t == "SearchUserProvidedModule":
+        return {"statusCode":200,"body":json.dumps(search_module(args.get("module_url",""), args.get("version")), default=str, indent=2)}
+    elif t in ("ExecuteTerraformCommand","ExecuteTerragruntCommand"):
+        return {"statusCode":200,"body":json.dumps({"message":"Use SSM to run on EC2","command":args.get("command","")})}
+    elif t == "RunCheckovScan":
+        return {"statusCode":200,"body":json.dumps({"message":"Install: pip install checkov && checkov -d " + args.get("working_directory",".")})}
+    elif t == "terraform_best_practices":
+        return {"statusCode":200,"body":TF_BEST_PRACTICES}
+    return {"statusCode":400,"body":json.dumps({"error":"Unknown tool: "+t})}
+LAMBDAEOF
+
+cd /tmp && zip -j aws_terraform_mcp.zip aws_terraform_mcp.py 2>/dev/null
+aws lambda create-function \
+    --function-name awsops-terraform-mcp --runtime python3.12 \
+    --handler "aws_terraform_mcp.lambda_handler" \
+    --role "$LAMBDA_ROLE_ARN" --zip-file "fileb:///tmp/aws_terraform_mcp.zip" \
+    --timeout 30 --memory-size 256 \
+    --region "$REGION" 2>/dev/null || \
+aws lambda update-function-code \
+    --function-name awsops-terraform-mcp --zip-file "fileb:///tmp/aws_terraform_mcp.zip" \
+    --region "$REGION" 2>/dev/null
+
+aws lambda add-permission --function-name awsops-terraform-mcp \
+    --statement-id agentcore-invoke --action lambda:InvokeFunction \
+    --principal bedrock-agentcore.amazonaws.com \
+    --region "$REGION" 2>/dev/null || true
+
+echo "  Lambda: awsops-terraform-mcp (provider docs + module search + best practices)"
+
 # -- [3/3] Create Gateway Targets (via Python/boto3) --------------------------
 #   KNOWN ISSUE: AWS CLI has issues with inlinePayload JSON format.
 #   Using Python/boto3 with correct mcp.lambda structure.
 echo ""
-echo -e "${CYAN}[3/3] Creating Gateway targets (7) via boto3...${NC}"
+echo -e "${CYAN}[3/3] Creating Gateway targets (8) via boto3...${NC}"
 echo -e "  ${YELLOW}NOTE: Using Python/boto3 (CLI has issues with inlinePayload)${NC}"
 
 # Auto-detect Gateway ID
@@ -698,6 +780,30 @@ targets = [
        'inputSchema': {'type': 'object', 'properties': {
            'url': prop('string', 'Documentation URL')},
         'required': ['url']}}]),
+    ('terraform-mcp-target', 'awsops-terraform-mcp',
+     'Terraform MCP - provider docs, module search, best practices',
+     [{'name': 'SearchAwsProviderDocs',
+       'description': 'Search AWS Terraform provider resource documentation.',
+       'inputSchema': {'type': 'object', 'properties': {
+           'asset_name': prop('string', 'AWS resource e.g. aws_lambda_function')},
+        'required': ['asset_name']}},
+      {'name': 'SearchAwsccProviderDocs',
+       'description': 'Search AWSCC Terraform provider documentation (Cloud Control API).',
+       'inputSchema': {'type': 'object', 'properties': {
+           'asset_name': prop('string', 'AWSCC resource e.g. awscc_s3_bucket')},
+        'required': ['asset_name']}},
+      {'name': 'SearchSpecificAwsIaModules',
+       'description': 'Search AWS-IA Terraform modules (Bedrock, OpenSearch, SageMaker, Streamlit).',
+       'inputSchema': {'type': 'object', 'properties': {
+           'query': prop('string', 'Search term')}}},
+      {'name': 'SearchUserProvidedModule',
+       'description': 'Analyze Terraform Registry module inputs, outputs, usage.',
+       'inputSchema': {'type': 'object', 'properties': {
+           'module_url': prop('string', 'Module URL e.g. terraform-aws-modules/vpc/aws')},
+        'required': ['module_url']}},
+      {'name': 'terraform_best_practices',
+       'description': 'Terraform AWS best practices for structure, security, code quality.',
+       'inputSchema': {'type': 'object', 'properties': {}}}]),
 ]
 
 for name, fn, desc, tools in targets:
@@ -743,8 +849,9 @@ echo "    - awsops-steampipe-query     (VPC, pg8000 → Steampipe :9193)"
 echo "    - awsops-aws-knowledge       (proxy → AWS Knowledge MCP)"
 echo "    - awsops-core-mcp            (prompt + call_aws + suggest)"
 echo "    - awsops-iac-mcp             (CFn validate + troubleshoot + CDK docs)"
+echo "    - awsops-terraform-mcp       (provider docs + module search)"
 echo ""
-echo "  Gateway Targets: 7 (via boto3 with mcp.lambda + inlinePayload)"
+echo "  Gateway Targets: 8 (via boto3 with mcp.lambda + inlinePayload)"
 echo ""
 echo "  Next: bash scripts/06d-setup-agentcore-interpreter.sh"
 echo ""
