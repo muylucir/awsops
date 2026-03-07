@@ -12,8 +12,8 @@ import { runQuery } from '@/lib/steampipe';
 
 const BEDROCK_REGION = 'us-east-1';
 const AGENTCORE_REGION = 'ap-northeast-2';
-const AGENT_RUNTIME_ARN = 'arn:aws:bedrock-agentcore:ap-northeast-2:730335239360:runtime/awsops_agent-0gr2NL8TG8';
-const CODE_INTERPRETER_ID = 'awsops_code_interpreter-z8d1fmh5Nf';
+const AGENT_RUNTIME_ARN = 'arn:aws:bedrock-agentcore:ap-northeast-2:605134447633:runtime/awsops_agent-zMwFdo9X4Y';
+const CODE_INTERPRETER_ID = 'awsops_code_interpreter-pnEkzLpDfH';
 
 const MODELS: Record<string, string> = {
   'sonnet-4.6': 'us.anthropic.claude-sonnet-4-6',
@@ -155,6 +155,15 @@ function needsAgentCore(message: string): boolean {
   return keywords.some(k => lower.includes(k));
 }
 
+// IaC keywords → route to IaC Gateway (CDK, CloudFormation, Terraform)
+function needsIaC(message: string): boolean {
+  const lower = message.toLowerCase();
+  const keywords = ['cdk','cloudformation','cfn','terraform','terragrunt','checkov',
+    'infrastructure as code','iac','스택','template','모듈','module','provider',
+    'cdk best practice','validate template','deploy stack'];
+  return keywords.some(k => lower.includes(k));
+}
+
 // AWS resource overview keywords → Steampipe + Bedrock direct
 function needsAWSData(message: string): boolean {
   const lower = message.toLowerCase();
@@ -163,13 +172,13 @@ function needsAWSData(message: string): boolean {
   return keywords.some(k => lower.includes(k));
 }
 
-// AgentCore Runtime invoke for general questions
-async function invokeAgentCore(message: string): Promise<string | null> {
+// AgentCore Runtime invoke with gateway selection
+async function invokeAgentCore(message: string, gateway: 'network' | 'ops' | 'iac' | 'all' = 'ops'): Promise<string | null> {
   try {
     const command = new InvokeAgentRuntimeCommand({
       agentRuntimeArn: AGENT_RUNTIME_ARN,
       qualifier: 'DEFAULT',
-      payload: JSON.stringify({ prompt: message }),
+      payload: JSON.stringify({ prompt: message, gateway }),
     });
     const response = await agentCoreClient.send(command);
     const sessionId = response.runtimeSessionId;
@@ -222,6 +231,7 @@ export async function POST(request: NextRequest) {
     const lastMessage = messages[messages.length - 1]?.content || '';
     const useCodeInterpreter = needsCodeInterpreter(lastMessage);
     const useAgentCore = needsAgentCore(lastMessage);
+    const useIaC = needsIaC(lastMessage);
     const needsData = needsAWSData(lastMessage);
 
     // Route Code: Code execution request → Code Interpreter + AI analysis
@@ -274,18 +284,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Route 0: Network troubleshooting → AgentCore Runtime (Gateway MCP tools)
+    // Route 0: Network troubleshooting → AgentCore Runtime (Network Gateway)
     if (useAgentCore) {
-      const agentResponse = await invokeAgentCore(lastMessage);
+      const agentResponse = await invokeAgentCore(lastMessage, 'network');
       if (agentResponse) {
         return NextResponse.json({
           content: agentResponse,
           model: 'sonnet-4.6',
-          via: 'AgentCore Runtime → Gateway MCP → Lambda',
-          queriedResources: ['agentcore-gateway'],
+          via: 'AgentCore Runtime → Network Gateway (3 tools)',
+          queriedResources: ['network-gateway'],
         });
       }
       // Fall through to Bedrock if AgentCore fails
+    }
+
+    // Route 0.5: IaC questions → AgentCore Runtime (IaC Gateway)
+    if (useIaC) {
+      const agentResponse = await invokeAgentCore(lastMessage, 'iac');
+      if (agentResponse) {
+        return NextResponse.json({
+          content: agentResponse,
+          model: 'sonnet-4.6',
+          via: 'AgentCore Runtime → IaC Gateway (16 tools)',
+          queriedResources: ['iac-gateway'],
+        });
+      }
     }
 
     // Route 1: AWS resource questions → Bedrock Direct + Steampipe data
@@ -338,14 +361,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Route 2: General questions → AgentCore Runtime (Strands Agent)
-    const agentResponse = await invokeAgentCore(lastMessage);
+    // Route 2: General questions → AgentCore Runtime (Ops Gateway)
+    const agentResponse = await invokeAgentCore(lastMessage, 'ops');
     if (agentResponse) {
       return NextResponse.json({
         content: agentResponse,
         model: 'sonnet-4.6',
-        via: 'AgentCore Runtime (Strands)',
-        queriedResources: [],
+        via: 'AgentCore Runtime → Ops Gateway (9 tools)',
+        queriedResources: ['ops-gateway'],
       });
     }
 

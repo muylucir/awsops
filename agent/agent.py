@@ -1,4 +1,4 @@
-"""AWSops Strands Agent with AgentCore Gateway MCP Tools"""
+"""AWSops Strands Agent with Dynamic Gateway Routing"""
 import json
 import logging
 from strands import Agent
@@ -14,7 +14,15 @@ logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[l
 
 app = BedrockAgentCoreApp()
 
-GATEWAY_URL = "https://awsops-gateway-tdmsildtzr.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp"
+# Gateway URLs by role (route.ts selects which one to use)
+GATEWAYS = {
+    "network": "https://awsops-network-gateway-oimomguf7x.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "ops": "https://awsops-ops-gateway-ybcvjkwu71.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "iac": "https://awsops-iac-gateway-i0vlfltmwu.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    # Legacy: single gateway with all tools
+    "all": "https://awsops-gateway-g0ihtogknw.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+}
+DEFAULT_GATEWAY = "ops"
 GATEWAY_REGION = "ap-northeast-2"
 SERVICE = "bedrock-agentcore"
 
@@ -24,14 +32,33 @@ model = BedrockModel(
     region_name="us-east-1",
 )
 
-SYSTEM_PROMPT = """You are AWSops AI Assistant, an expert in AWS cloud operations and network troubleshooting.
-You have access to MCP tools via AgentCore Gateway for:
-- VPC Reachability Analyzer: analyze network connectivity between resources
-- Flow Monitor: query flow logs, find ENIs by IP, get security group rules, route tables, VPN connections
+# Role-specific system prompts
+SYSTEM_PROMPTS = {
+    "network": """You are AWSops Network Specialist, an expert in AWS networking and troubleshooting.
+You have MCP tools for:
+- VPC Reachability Analyzer: analyze network paths between resources
+- Flow Monitor: query VPC flow logs for traffic analysis
+- Network MCP: describe security groups, NACLs, route tables, subnets, VPCs
+Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
 
-Use the appropriate tools to help users troubleshoot network issues, analyze connectivity, and understand their AWS network configuration.
-Always be concise and provide actionable insights. Format in markdown.
-Respond in the user's language."""
+    "ops": """You are AWSops Operations Assistant, an expert in AWS cloud operations.
+You have MCP tools for:
+- Steampipe Query: execute SQL against 580+ AWS resource tables
+- AWS Knowledge: search documentation, check regional availability
+- Core MCP: execute AWS CLI commands, get solution design guidance
+Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
+
+    "iac": """You are AWSops IaC Specialist, an expert in Infrastructure as Code.
+You have MCP tools for:
+- CloudFormation: validate templates, check compliance, troubleshoot deployments, search docs
+- CDK: search documentation, samples, constructs, best practices
+- Terraform: search AWS/AWSCC provider docs, analyze Registry modules, best practices
+Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
+
+    "all": """You are AWSops AI Assistant, an expert in AWS cloud operations.
+You have access to MCP tools via AgentCore Gateway for network troubleshooting, AWS operations, and IaC.
+Always be concise, provide actionable insights. Format in markdown. Respond in the user's language.""",
+}
 
 
 def get_aws_credentials():
@@ -44,8 +71,8 @@ def get_aws_credentials():
     return None, None, None
 
 
-def create_gateway_transport():
-    """Create SigV4-signed transport to AgentCore Gateway."""
+def create_gateway_transport(gateway_url):
+    """Create SigV4-signed transport to a specific Gateway."""
     access_key, secret_key, session_token = get_aws_credentials()
     credentials = Credentials(
         access_key=access_key,
@@ -53,7 +80,7 @@ def create_gateway_transport():
         token=session_token,
     )
     return streamablehttp_client_with_sigv4(
-        url=GATEWAY_URL,
+        url=gateway_url,
         credentials=credentials,
         service=SERVICE,
         region=GATEWAY_REGION,
@@ -81,27 +108,34 @@ def handler(payload):
     if not user_input:
         return "No input provided."
 
+    # Select gateway based on payload (route.ts sets this)
+    gateway_role = payload.get("gateway", DEFAULT_GATEWAY)
+    gateway_url = GATEWAYS.get(gateway_role, GATEWAYS[DEFAULT_GATEWAY])
+    system_prompt = SYSTEM_PROMPTS.get(gateway_role, SYSTEM_PROMPTS[DEFAULT_GATEWAY])
+
+    logging.info(f"Gateway: {gateway_role} -> {gateway_url}")
+
     try:
-        mcp_client = MCPClient(lambda: create_gateway_transport())
+        mcp_client = MCPClient(lambda: create_gateway_transport(gateway_url))
 
         with mcp_client:
             tools = get_all_tools(mcp_client)
             tool_names = [t.tool_name for t in tools]
-            logging.info(f"Gateway MCP tools: {tool_names}")
+            logging.info(f"Gateway [{gateway_role}] MCP tools ({len(tools)}): {tool_names}")
 
             agent = Agent(
                 model=model,
                 tools=tools,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
             )
 
             response = agent(user_input)
             return response.message['content'][0]['text']
 
     except Exception as e:
-        logging.error(f"Gateway MCP error: {e}")
+        logging.error(f"Gateway MCP error [{gateway_role}]: {e}")
         # Fallback: run without MCP tools
-        agent = Agent(model=model, system_prompt=SYSTEM_PROMPT)
+        agent = Agent(model=model, system_prompt=system_prompt)
         response = agent(user_input)
         return response.message['content'][0]['text']
 
