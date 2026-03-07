@@ -26,7 +26,7 @@
                                   │
                                   ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  ALB (Internet-facing) — SG: CloudFront Prefix List Only                     │
+│  ALB (Internet-facing) — SG: CloudFront Prefix List (port 80-3000)           │
 │  Port 80 → VSCode (8888)  |  Port 3000 → Dashboard (3000)                   │
 └─────────────────────────────────┬────────────────────────────────────────────┘
                                   │
@@ -151,7 +151,7 @@
 | ECR | ap-northeast-2 | Agent Docker 이미지 |
 | Bedrock (Sonnet/Opus 4.6) | us-east-1 | AI 모델 |
 | SSM | ap-northeast-2 | EC2 접근 |
-| CloudFormation | ap-northeast-2 | 인프라 배포 |
+| CDK (CloudFormation) | ap-northeast-2 | 인프라 배포 (AwsopsStack) |
 
 ---
 
@@ -164,7 +164,7 @@
 | Data | Steampipe (embedded PostgreSQL), Powerpipe |
 | AI | Amazon Bedrock, AgentCore Runtime (Strands), AgentCore Gateway (MCP) |
 | Auth | Amazon Cognito, Lambda@Edge |
-| IaC | CloudFormation, CDK (infra-cdk/) |
+| IaC | CDK TypeScript (`infra-cdk/`) — AwsopsStack, CognitoStack |
 | Container | Docker (arm64), ECR |
 
 ---
@@ -177,23 +177,35 @@
 - AWS credentials configured
 - kubectl + kubeconfig (for K8s features)
 
-### Installation
+### Installation (10 Steps)
 
 ```bash
-# Step 0: Deploy EC2 infrastructure
+# Step 0: CDK 인프라 배포 (로컬 머신에서 실행)
 export VSCODE_PASSWORD='YourPassword'
 bash scripts/00-deploy-infra.sh
+#   → cdk bootstrap + cdk deploy AwsopsStack
+#   → VPC, EC2, ALB, CloudFront, SSM Endpoints
 
-# SSM into the instance
+# SSM 접속 → EC2 내부
 aws ssm start-session --target <instance-id>
 
-# Step 1-3: Install everything
-bash scripts/install-all.sh
+# Step 1-3: 대시보드 설치 (EC2 내부)
+cd /home/ec2-user/awsops
+bash scripts/install-all.sh        # 01→02→03→09 자동 실행
 
-# Optional
-bash scripts/04-setup-alb.sh          # ALB for dashboard
-bash scripts/05-setup-cognito.sh      # Cognito auth
-bash scripts/06-setup-agentcore.sh    # AI AgentCore
+# Step 5: Cognito 인증
+bash scripts/05-setup-cognito.sh
+
+# Step 6: AgentCore AI (일괄 또는 개별)
+bash scripts/06-setup-agentcore.sh           # 6a→6b→6c→6d 일괄
+  # 또는 개별 실행:
+  # bash scripts/06a-setup-agentcore-runtime.sh      # Runtime
+  # bash scripts/06b-setup-agentcore-gateway.sh      # Gateway
+  # bash scripts/06c-setup-agentcore-tools.sh        # Lambda + MCP
+  # bash scripts/06d-setup-agentcore-interpreter.sh  # Code Interpreter
+
+# Step 7: Lambda@Edge → CloudFront 연동
+bash scripts/07-setup-cloudfront-auth.sh
 ```
 
 ### Operations
@@ -202,15 +214,6 @@ bash scripts/06-setup-agentcore.sh    # AI AgentCore
 bash scripts/07-start-all.sh    # Start + status + URLs
 bash scripts/08-stop-all.sh     # Stop all
 bash scripts/09-verify.sh       # 46-item health check
-```
-
-### CDK (Alternative)
-
-```bash
-cd infra-cdk && npm install
-cdk bootstrap
-cdk deploy AwsopsStack
-cdk deploy AwsopsCognitoStack
 ```
 
 ---
@@ -228,7 +231,13 @@ awsops/
 ├── agent/                        # Strands Agent (Docker, arm64)
 ├── powerpipe/                    # CIS Benchmark mod
 ├── infra-cdk/                    # CDK (VPC, ALB, CF, Cognito, AgentCore)
-├── scripts/                      # 11 install/ops scripts + ARCHITECTURE.md
+├── scripts/                      # 14 install/ops scripts + ARCHITECTURE.md
+│   ├── 00-deploy-infra.sh        # Step 0: CDK 인프라 배포
+│   ├── 01~03 + 09                # Step 1-3: 기본 설치 + 검증
+│   ├── 05-setup-cognito.sh       # Step 5: Cognito 인증
+│   ├── 06a~06d-setup-agentcore-* # Step 6a-6d: AgentCore (분리)
+│   ├── 06-setup-agentcore.sh     # Step 6: 래퍼 (6a→6b→6c→6d)
+│   └── 07-setup-cloudfront-auth.sh # Step 7: Lambda@Edge 연동
 ├── docs/                         # Guides + Troubleshooting
 ├── .kiro/rules.md                # Kiro vibe-coding rules
 └── .amazonq/rules.md             # Amazon Q rules
@@ -259,6 +268,10 @@ awsops/
 | CloudTrail >60s timeout | 이벤트 탭 lazy-load |
 | AgentCore arm64 only | `docker buildx --platform linux/arm64` |
 | PostgreSQL 별도 설치? | 불필요 — Steampipe에 내장 |
+| CloudFront CachePolicy TTL=0 + Header | 관리형 `CACHING_DISABLED` 사용 |
+| ALB SG 규칙 한도 초과 (CF prefix 120+) | 포트 범위 80-3000 단일 규칙으로 통합 |
+| Gateway Target CLI inlinePayload 오류 | Python/boto3 사용 (`mcp.lambda` 구조) |
+| Code Interpreter 이름 하이픈 | 언더스코어만 허용 (`[a-zA-Z][a-zA-Z0-9_]`) |
 
 ---
 
