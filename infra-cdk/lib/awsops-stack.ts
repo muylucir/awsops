@@ -43,29 +43,47 @@ export class AwsopsStack extends cdk.Stack {
       description: 'CloudFront origin-facing managed prefix list ID (pl-22a6434b for ap-northeast-2)',
     });
 
-    // -------------------------------------------------------
-    // VPC: 10.254.0.0/16 with 2 public + 2 private subnets
-    // -------------------------------------------------------
-    this.vpc = new ec2.Vpc(this, 'VPC', {
-      ipAddresses: ec2.IpAddresses.cidr('10.254.0.0/16'),
-      maxAzs: 2,
-      natGateways: 1,
-      subnetConfiguration: [
-        {
-          cidrMask: 24,
-          name: 'Public',
-          subnetType: ec2.SubnetType.PUBLIC,
-        },
-        {
-          cidrMask: 24,
-          name: 'Private',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-        },
-      ],
+    // 기존 VPC ID (빈 값이면 새 VPC 생성) / Existing VPC ID (empty = create new VPC)
+    const existingVpcId = new cdk.CfnParameter(this, 'ExistingVpcId', {
+      type: 'String',
+      default: '',
+      description: 'Existing VPC ID to use. Leave empty to create a new VPC.',
     });
 
-    // Tag resources
-    cdk.Tags.of(this.vpc).add('Name', `${this.stackName}-VPC`);
+    // -------------------------------------------------------
+    // VPC: 기존 VPC 사용 또는 새로 생성 / Use existing or create new
+    // -------------------------------------------------------
+    const useExistingVpc = new cdk.CfnCondition(this, 'UseExistingVpc', {
+      expression: cdk.Fn.conditionNot(cdk.Fn.conditionEquals(existingVpcId.valueAsString, '')),
+    });
+
+    // 기존 VPC 조회 또는 새 VPC 생성 / Lookup existing or create new
+    if (this.node.tryGetContext('useExistingVpc') === 'true') {
+      // 기존 VPC 사용 모드 / Use existing VPC mode
+      const vpcId = this.node.tryGetContext('vpcId') || '';
+      this.vpc = ec2.Vpc.fromLookup(this, 'VPC', { vpcId }) as unknown as ec2.Vpc;
+    } else {
+      // 새 VPC 생성 모드 / Create new VPC mode
+      this.vpc = new ec2.Vpc(this, 'VPC', {
+        ipAddresses: ec2.IpAddresses.cidr('10.254.0.0/16'),
+        maxAzs: 2,
+        natGateways: 1,
+        subnetConfiguration: [
+          {
+            cidrMask: 24,
+            name: 'Public',
+            subnetType: ec2.SubnetType.PUBLIC,
+          },
+          {
+            cidrMask: 24,
+            name: 'Private',
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          },
+        ],
+      });
+      // 새 VPC에 이름 태그 / Tag new VPC with name
+      cdk.Tags.of(this.vpc).add('Name', `${this.stackName}-VPC`);
+    }
 
     // -------------------------------------------------------
     // Security Groups

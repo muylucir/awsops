@@ -2,170 +2,382 @@
 set -e
 ################################################################################
 #                                                                              #
-#   Step 0: Deploy EC2 Infrastructure (CDK)                                    #
+#   Step 0: EC2 인프라 배포 (CDK) / Deploy EC2 Infrastructure (CDK)            #
 #                                                                              #
-#   CDK Project: $WORK_DIR/infra-cdk/                                          #
-#   Default:  t4g.2xlarge (ARM64 Graviton)                                     #
+#   대화형으로 계정, 리전, VPC를 선택합니다.                                     #
+#   Interactively select account, region, and VPC.                             #
 #                                                                              #
-#   Environment variables:                                                     #
-#     VSCODE_PASSWORD      - (required) Password for VSCode server             #
-#     INSTANCE_TYPE        - (optional) EC2 instance type [t4g.2xlarge]        #
-#     AWS_DEFAULT_REGION   - (optional) Primary region [ap-northeast-2]        #
+#   CDK 프로젝트: infra-cdk/ / CDK Project: infra-cdk/                          #
+#   기본값: t4g.2xlarge (ARM64 Graviton)                                        #
 #                                                                              #
-#   NOTE: PostgreSQL 별도 설치 불필요 - Steampipe에 내장되어 있음                  #
+#   환경 변수 (선택, 대화형 대체) / Environment variables (optional):            #
+#     AWS_PROFILE          - AWS CLI 프로파일 / AWS CLI profile                  #
+#     VSCODE_PASSWORD      - VSCode 비밀번호 / VSCode password                  #
+#     INSTANCE_TYPE        - EC2 타입 [t4g.2xlarge]                             #
 #                                                                              #
 ################################################################################
 
-# -- Colors & common variables ------------------------------------------------
+# -- 색상 / Colors ------------------------------------------------------------
 GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; NC='\033[0m'
+BOLD='\033[1m'; DIM='\033[2m'
 WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
-INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.2xlarge}"
-VSCODE_PASSWORD="${VSCODE_PASSWORD:-}"
 CDK_DIR="$WORK_DIR/infra-cdk"
 
 echo ""
 echo -e "${CYAN}=================================================================${NC}"
-echo -e "${CYAN}   Step 0: Deploy EC2 Infrastructure (CDK)${NC}"
+echo -e "${CYAN}   AWSops 대시보드 인프라 배포 / Infrastructure Deployment${NC}"
 echo -e "${CYAN}=================================================================${NC}"
 echo ""
 
-# -- [1/7] Pre-flight checks --------------------------------------------------
-echo -e "${CYAN}[1/7] Pre-flight checks...${NC}"
+###############################################################################
+#  [1/8] 사전 점검 / Pre-flight checks                                        #
+###############################################################################
+echo -e "${CYAN}[1/8] 사전 점검 / Pre-flight checks...${NC}"
 
-# AWS CLI
-if ! command -v aws &>/dev/null; then
-    echo -e "${RED}ERROR: aws CLI not found. Install it first.${NC}"
-    exit 1
+for cmd in aws node npm; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo -e "${RED}오류: $cmd 를 찾을 수 없습니다 / ERROR: $cmd not found${NC}"
+        exit 1
+    fi
+done
+echo "  aws:  $(aws --version 2>&1 | head -1)"
+echo "  node: $(node --version)  npm: $(npm --version)"
+
+###############################################################################
+#  [2/8] 계정 선택 / Account Selection                                         #
+###############################################################################
+echo ""
+echo -e "${CYAN}[2/8] AWS 계정 선택 / Account Selection...${NC}"
+echo ""
+
+# 현재 자격 증명으로 계정 확인 / Check current credentials
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+CURRENT_USER=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || echo "")
+
+if [ -n "$CURRENT_ACCOUNT" ]; then
+    echo -e "  현재 자격 증명 / Current credentials:"
+    echo "    계정 / Account: $CURRENT_ACCOUNT"
+    echo "    사용자 / User:  $CURRENT_USER"
+    echo ""
 fi
-echo "  aws CLI:  $(aws --version 2>&1 | head -1)"
 
-# Node.js
-if ! command -v node &>/dev/null; then
-    echo -e "${RED}ERROR: node not found. Install Node.js 18+ first.${NC}"
-    exit 1
-fi
-echo "  node:     $(node --version)"
+echo -e "${BOLD}  계정 옵션 선택 / Select account option:${NC}"
+echo ""
+echo "    1) 현재 자격 증명 사용 / Use current credentials ($CURRENT_ACCOUNT)"
+echo "    2) AWS 프로파일 선택 / Select AWS profile"
+echo "    3) Access Key 직접 입력 / Enter Access Key manually"
+echo ""
+read -p "  번호 입력 / Enter number [1]: " ACCT_CHOICE
+ACCT_CHOICE="${ACCT_CHOICE:-1}"
 
-# npm
-if ! command -v npm &>/dev/null; then
-    echo -e "${RED}ERROR: npm not found. Install Node.js 18+ first.${NC}"
-    exit 1
-fi
-echo "  npm:      $(npm --version)"
+case "$ACCT_CHOICE" in
+    2)
+        # 프로파일 목록 / List profiles
+        echo ""
+        echo -e "  ${CYAN}사용 가능한 프로파일 / Available profiles:${NC}"
+        PROFILES=($(aws configure list-profiles 2>/dev/null || echo "default"))
+        for i in "${!PROFILES[@]}"; do
+            PROF_ACCT=$(aws sts get-caller-identity --profile "${PROFILES[$i]}" --query Account --output text 2>/dev/null || echo "?")
+            printf "    %2d) %-20s (계정 / Account: %s)\n" $((i+1)) "${PROFILES[$i]}" "$PROF_ACCT"
+        done
+        echo ""
+        read -p "  프로파일 번호 / Profile number: " PROF_CHOICE
+        if [[ "$PROF_CHOICE" =~ ^[0-9]+$ ]] && [ "$PROF_CHOICE" -ge 1 ] && [ "$PROF_CHOICE" -le "${#PROFILES[@]}" ]; then
+            export AWS_PROFILE="${PROFILES[$((PROF_CHOICE-1))]}"
+            echo -e "  ${GREEN}프로파일 설정: $AWS_PROFILE${NC}"
+        fi
+        ;;
+    3)
+        # 직접 입력 / Manual entry
+        echo ""
+        read -p "  AWS Access Key ID: " INPUT_ACCESS_KEY
+        read -sp "  AWS Secret Access Key: " INPUT_SECRET_KEY
+        echo ""
+        read -p "  리전 (예: ap-northeast-2): " INPUT_REGION
 
-# Account info
+        # 임시 프로파일 생성 / Create temp profile
+        aws configure set aws_access_key_id "$INPUT_ACCESS_KEY" --profile awsops-deploy
+        aws configure set aws_secret_access_key "$INPUT_SECRET_KEY" --profile awsops-deploy
+        aws configure set region "${INPUT_REGION:-ap-northeast-2}" --profile awsops-deploy
+        export AWS_PROFILE="awsops-deploy"
+        echo -e "  ${GREEN}자격 증명 설정 완료 / Credentials configured${NC}"
+        ;;
+    *)
+        echo "  현재 자격 증명 사용 / Using current credentials"
+        ;;
+esac
+
+# 최종 계정 확인 / Final account verification
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
 if [ "$ACCOUNT_ID" = "unknown" ]; then
-    echo -e "${RED}ERROR: Cannot determine AWS account. Check credentials.${NC}"
+    echo -e "${RED}오류: AWS 계정 확인 실패 / ERROR: Cannot verify AWS account${NC}"
     exit 1
 fi
-echo "  Account:  $ACCOUNT_ID"
-echo "  Region:   $REGION"
+echo -e "  ${GREEN}계정 확인 / Account verified: $ACCOUNT_ID${NC}"
 
-# -- [2/7] Install CDK CLI ----------------------------------------------------
+###############################################################################
+#  [3/8] 리전 선택 / Region Selection                                          #
+###############################################################################
 echo ""
-echo -e "${CYAN}[2/7] Install CDK CLI...${NC}"
+echo -e "${CYAN}[3/8] 리전 선택 / Region Selection...${NC}"
+echo ""
+echo -e "${BOLD}  배포할 리전을 선택하세요 / Select deployment region:${NC}"
+echo ""
+
+REGIONS=(
+    "ap-northeast-2:서울 / Seoul"
+    "ap-northeast-1:도쿄 / Tokyo"
+    "ap-northeast-3:오사카 / Osaka"
+    "ap-southeast-1:싱가포르 / Singapore"
+    "ap-southeast-2:시드니 / Sydney"
+    "ap-south-1:뭄바이 / Mumbai"
+    "us-east-1:버지니아 / N. Virginia"
+    "us-east-2:오하이오 / Ohio"
+    "us-west-2:오레곤 / Oregon"
+    "eu-west-1:아일랜드 / Ireland"
+    "eu-central-1:프랑크푸르트 / Frankfurt"
+    "eu-west-2:런던 / London"
+    "sa-east-1:상파울루 / São Paulo"
+)
+
+for i in "${!REGIONS[@]}"; do
+    RCODE="${REGIONS[$i]%%:*}"
+    RNAME="${REGIONS[$i]##*:}"
+    MARKER=""
+    [ "$RCODE" = "ap-northeast-2" ] && MARKER=" ${YELLOW}(기본값 / default)${NC}"
+    printf "    %2d) %-20s %s" $((i+1)) "$RCODE" "$RNAME"
+    echo -e "$MARKER"
+done
+echo ""
+read -p "  번호 입력 / Enter number [1]: " REGION_CHOICE
+REGION_CHOICE="${REGION_CHOICE:-1}"
+
+if [[ "$REGION_CHOICE" =~ ^[0-9]+$ ]] && [ "$REGION_CHOICE" -ge 1 ] && [ "$REGION_CHOICE" -le "${#REGIONS[@]}" ]; then
+    REGION="${REGIONS[$((REGION_CHOICE-1))]%%:*}"
+else
+    REGION="ap-northeast-2"
+fi
+
+echo -e "  ${GREEN}선택된 리전 / Selected: $REGION${NC}"
+export AWS_DEFAULT_REGION="$REGION"
+
+###############################################################################
+#  [4/8] VPC 선택 / VPC Selection                                              #
+###############################################################################
+echo ""
+echo -e "${CYAN}[4/8] VPC 선택 / VPC Selection...${NC}"
+echo ""
+echo -e "${BOLD}  VPC 옵션을 선택하세요 / Select VPC option:${NC}"
+echo ""
+echo "    1) 새 VPC 생성 / Create new VPC (10.254.0.0/16, 2 Public + 2 Private subnets)"
+echo "    2) 기존 VPC 선택 / Use existing VPC from account"
+echo ""
+read -p "  번호 입력 / Enter number [1]: " VPC_CHOICE
+VPC_CHOICE="${VPC_CHOICE:-1}"
+
+USE_EXISTING_VPC="false"
+EXISTING_VPC_ID=""
+
+if [ "$VPC_CHOICE" = "2" ]; then
+    echo ""
+    echo -e "  ${CYAN}$REGION 리전의 VPC 목록 조회 중... / Listing VPCs in $REGION...${NC}"
+    echo ""
+
+    VPC_JSON=$(aws ec2 describe-vpcs --region "$REGION" --output json 2>/dev/null)
+    VPC_COUNT=$(echo "$VPC_JSON" | python3 -c "import json,sys;print(len(json.load(sys.stdin).get('Vpcs',[])))")
+
+    if [ "$VPC_COUNT" = "0" ]; then
+        echo -e "  ${YELLOW}VPC가 없습니다. 새 VPC를 생성합니다.${NC}"
+        echo -e "  ${YELLOW}No VPCs found. Will create a new VPC.${NC}"
+    else
+        # VPC 목록 출력 / Display VPC list
+        echo "$VPC_JSON" | python3 -c "
+import json, sys
+vpcs = json.load(sys.stdin).get('Vpcs', [])
+for i, v in enumerate(vpcs):
+    name = next((t['Value'] for t in v.get('Tags', []) if t['Key'] == 'Name'), '(이름 없음 / no name)')
+    cidr = v.get('CidrBlock', '?')
+    vid = v['VpcId']
+    default = ' [기본 / default]' if v.get('IsDefault') else ''
+    print('    {:2d}) {:25s} {:18s} {}{}'.format(i+1, vid, cidr, name, default))
+"
+        echo ""
+
+        VPC_IDS=($(echo "$VPC_JSON" | python3 -c "import json,sys;[print(v['VpcId']) for v in json.load(sys.stdin).get('Vpcs',[])]"))
+
+        read -p "  VPC 번호 선택 / Select VPC number: " VPC_SELECT
+
+        if [[ "$VPC_SELECT" =~ ^[0-9]+$ ]] && [ "$VPC_SELECT" -ge 1 ] && [ "$VPC_SELECT" -le "${#VPC_IDS[@]}" ]; then
+            EXISTING_VPC_ID="${VPC_IDS[$((VPC_SELECT-1))]}"
+            USE_EXISTING_VPC="true"
+
+            # 서브넷 상세 / Subnet details
+            echo ""
+            echo -e "  ${CYAN}$EXISTING_VPC_ID 서브넷 정보 / Subnet info:${NC}"
+            aws ec2 describe-subnets --filters "Name=vpc-id,Values=$EXISTING_VPC_ID" \
+                --region "$REGION" --output json 2>/dev/null | python3 -c "
+import json, sys
+subnets = json.load(sys.stdin).get('Subnets', [])
+pub = [s for s in subnets if s.get('MapPublicIpOnLaunch')]
+priv = [s for s in subnets if not s.get('MapPublicIpOnLaunch')]
+print('    퍼블릭 서브넷 / Public:  {} 개'.format(len(pub)))
+for s in pub:
+    name = next((t['Value'] for t in s.get('Tags',[]) if t['Key']=='Name'), '')
+    print('      {} {} {}'.format(s['SubnetId'], s['AvailabilityZone'], name))
+print('    프라이빗 서브넷 / Private: {} 개'.format(len(priv)))
+for s in priv:
+    name = next((t['Value'] for t in s.get('Tags',[]) if t['Key']=='Name'), '')
+    print('      {} {} {}'.format(s['SubnetId'], s['AvailabilityZone'], name))
+
+if len(pub) < 1 or len(priv) < 1:
+    print()
+    print('    ⚠ 경고: 퍼블릭 + 프라이빗 서브넷이 각각 1개 이상 필요합니다.')
+    print('    ⚠ WARNING: Need at least 1 public + 1 private subnet.')
+"
+            # NAT Gateway 확인 / Check NAT Gateway
+            NAT_COUNT=$(aws ec2 describe-nat-gateways \
+                --filter "Name=vpc-id,Values=$EXISTING_VPC_ID" "Name=state,Values=available" \
+                --query "NatGateways[*].NatGatewayId" --output text --region "$REGION" 2>/dev/null | wc -w)
+            IGW_COUNT=$(aws ec2 describe-internet-gateways \
+                --filters "Name=attachment.vpc-id,Values=$EXISTING_VPC_ID" \
+                --query "InternetGateways[*].InternetGatewayId" --output text --region "$REGION" 2>/dev/null | wc -w)
+            echo "    Internet Gateway:     $IGW_COUNT 개"
+            echo "    NAT Gateway:          $NAT_COUNT 개"
+
+            if [ "$NAT_COUNT" -lt 1 ]; then
+                echo -e "    ${YELLOW}⚠ NAT Gateway 없음 - 프라이빗 서브넷 인터넷 접근 불가${NC}"
+            fi
+        else
+            echo -e "  ${YELLOW}잘못된 선택 / Invalid selection. 새 VPC 생성.${NC}"
+        fi
+    fi
+fi
+
+echo ""
+if [ "$USE_EXISTING_VPC" = "true" ]; then
+    echo -e "  ${GREEN}✓ 기존 VPC 사용 / Using existing VPC: $EXISTING_VPC_ID${NC}"
+else
+    echo -e "  ${GREEN}✓ 새 VPC 생성 / Creating new VPC (10.254.0.0/16)${NC}"
+fi
+
+###############################################################################
+#  [5/8] CDK CLI 설치 / Install CDK CLI                                        #
+###############################################################################
+echo ""
+echo -e "${CYAN}[5/8] CDK CLI 설치 / Install CDK CLI...${NC}"
 
 if command -v cdk &>/dev/null; then
-    echo "  CDK CLI already installed: $(cdk --version)"
+    echo "  이미 설치됨 / Already installed: $(cdk --version)"
 else
-    echo "  Installing aws-cdk globally..."
     sudo npm install -g aws-cdk
-    echo "  CDK CLI installed: $(cdk --version)"
+    echo "  설치 완료 / Installed: $(cdk --version)"
 fi
 
-# -- [3/7] Build CDK project ---------------------------------------------------
+###############################################################################
+#  [6/8] CDK 빌드 + 부트스트랩 / Build + Bootstrap                             #
+###############################################################################
 echo ""
-echo -e "${CYAN}[3/7] Build CDK project...${NC}"
-
-if [ ! -d "$CDK_DIR" ]; then
-    echo -e "${RED}ERROR: CDK project not found at $CDK_DIR${NC}"
-    exit 1
-fi
+echo -e "${CYAN}[6/8] CDK 빌드 + 부트스트랩 / Build + Bootstrap...${NC}"
 
 cd "$CDK_DIR"
-echo "  Installing dependencies..."
-npm install
-echo "  Compiling TypeScript..."
+npm install --quiet
 npx tsc
-echo "  Build complete."
-
-# -- [4/7] CDK bootstrap -------------------------------------------------------
-echo ""
-echo -e "${CYAN}[4/7] CDK bootstrap...${NC}"
+echo "  빌드 완료 / Build complete."
 
 bootstrap_region() {
-    local BOOTSTRAP_REGION="$1"
-    local BOOTSTRAP_STACK="CDKToolkit"
-    local EXISTING
-    EXISTING=$(aws cloudformation describe-stacks \
-        --stack-name "$BOOTSTRAP_STACK" \
-        --region "$BOOTSTRAP_REGION" \
+    local BR="$1"
+    local STATUS
+    STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region "$BR" \
         --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-
-    if [ "$EXISTING" != "NONE" ] && [ "$EXISTING" != "DELETE_COMPLETE" ]; then
-        echo "  $BOOTSTRAP_REGION: already bootstrapped ($EXISTING) - skipping"
+    if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ]; then
+        echo "  $BR: 이미 부트스트랩됨 / bootstrapped"
     else
-        echo "  $BOOTSTRAP_REGION: bootstrapping..."
-        cd "$CDK_DIR"
-        npx cdk bootstrap "aws://$ACCOUNT_ID/$BOOTSTRAP_REGION" --region "$BOOTSTRAP_REGION"
-        echo "  $BOOTSTRAP_REGION: bootstrap complete."
+        echo "  $BR: 부트스트랩 중... / bootstrapping..."
+        npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR"
     fi
 }
 
-bootstrap_region "ap-northeast-2"
-bootstrap_region "us-east-1"
+bootstrap_region "$REGION"
+[ "$REGION" != "us-east-1" ] && bootstrap_region "us-east-1"
 
-# -- [5/7] Auto-detect CloudFront prefix list ID -------------------------------
+###############################################################################
+#  [7/8] 설정 확인 / Confirm Configuration                                     #
+###############################################################################
 echo ""
-echo -e "${CYAN}[5/7] Auto-detect CloudFront prefix list...${NC}"
+echo -e "${CYAN}[7/8] 설정 확인 / Confirm Configuration...${NC}"
 
+# 인스턴스 타입 / Instance type
+INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.2xlarge}"
+
+# CloudFront Prefix List
 CF_PREFIX_LIST=$(aws ec2 describe-managed-prefix-lists \
     --filters "Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing" \
     --query "PrefixLists[0].PrefixListId" --output text --region "$REGION" 2>/dev/null || echo "")
-
-if [ -n "$CF_PREFIX_LIST" ] && [ "$CF_PREFIX_LIST" != "None" ]; then
-    echo "  CloudFront Prefix List: $CF_PREFIX_LIST (auto-detected)"
-else
-    echo -e "${RED}ERROR: Could not find CloudFront prefix list.${NC}"
-    echo "  Ensure CloudFront is available in $REGION."
+if [ -z "$CF_PREFIX_LIST" ] || [ "$CF_PREFIX_LIST" = "None" ]; then
+    echo -e "${RED}오류: CloudFront prefix list 없음 / Not found${NC}"
     exit 1
 fi
 
-# -- [6/7] Prompt for VSCODE_PASSWORD ------------------------------------------
-echo ""
-echo -e "${CYAN}[6/7] VSCode password...${NC}"
-
+# VSCode 비밀번호 / Password
+VSCODE_PASSWORD="${VSCODE_PASSWORD:-}"
 if [ -z "$VSCODE_PASSWORD" ]; then
-    read -sp "  Enter VSCode password (min 8 chars): " VSCODE_PASSWORD
+    echo ""
+    read -sp "  VSCode 비밀번호 (8자 이상) / Password (min 8 chars): " VSCODE_PASSWORD
     echo ""
 fi
-if [ -z "$VSCODE_PASSWORD" ] || [ ${#VSCODE_PASSWORD} -lt 8 ]; then
-    echo -e "${RED}ERROR: VSCODE_PASSWORD must be at least 8 characters.${NC}"
+if [ ${#VSCODE_PASSWORD} -lt 8 ]; then
+    echo -e "${RED}오류: 비밀번호 8자 이상 필요 / Password must be 8+ chars${NC}"
     exit 1
 fi
-echo "  Password set (${#VSCODE_PASSWORD} chars)."
 
-# -- [7/7] CDK deploy ----------------------------------------------------------
 echo ""
-echo -e "${CYAN}[7/7] Deploying AwsopsStack via CDK...${NC}"
-echo "  Instance Type:             $INSTANCE_TYPE"
-echo "  CloudFront Prefix List:    $CF_PREFIX_LIST"
-echo "  This takes 5-10 minutes..."
+echo -e "  ${BOLD}┌─────────────────────────────────────────────────┐${NC}"
+echo -e "  ${BOLD}│  배포 설정 요약 / Deployment Summary             │${NC}"
+echo -e "  ${BOLD}├─────────────────────────────────────────────────┤${NC}"
+echo "  │  계정 / Account:    $ACCOUNT_ID"
+echo "  │  리전 / Region:     $REGION"
+echo "  │  인스턴스 / Type:   $INSTANCE_TYPE"
+echo "  │  CF Prefix List:    $CF_PREFIX_LIST"
+if [ -n "$EXISTING_VPC_ID" ]; then
+    echo "  │  VPC:               $EXISTING_VPC_ID (기존 / existing)"
+else
+    echo "  │  VPC:               새로 생성 / new (10.254.0.0/16)"
+fi
+echo "  │  비밀번호 / PW:     $(printf '*%.0s' $(seq 1 ${#VSCODE_PASSWORD}))"
+echo -e "  ${BOLD}└─────────────────────────────────────────────────┘${NC}"
+echo ""
+read -p "  배포 시작? / Start deployment? (y/n) [y]: " CONFIRM
+CONFIRM="${CONFIRM:-y}"
+[ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ] && { echo "  취소 / Cancelled."; exit 0; }
+
+###############################################################################
+#  [8/8] CDK 배포 / CDK Deploy                                                #
+###############################################################################
+echo ""
+echo -e "${CYAN}[8/8] CDK 배포 중... (5-10분) / Deploying via CDK (5-10 min)...${NC}"
 echo ""
 
 cd "$CDK_DIR"
+
+CDK_CONTEXT=""
+if [ -n "$EXISTING_VPC_ID" ]; then
+    CDK_CONTEXT="-c useExistingVpc=true -c vpcId=$EXISTING_VPC_ID"
+fi
+
 npx cdk deploy AwsopsStack \
     --parameters InstanceType="$INSTANCE_TYPE" \
     --parameters VSCodePassword="$VSCODE_PASSWORD" \
     --parameters CloudFrontPrefixListId="$CF_PREFIX_LIST" \
+    --parameters ExistingVpcId="${EXISTING_VPC_ID}" \
+    $CDK_CONTEXT \
     --require-approval never \
     --region "$REGION" 2>&1
 
-# -- Parse stack outputs -------------------------------------------------------
+###############################################################################
+#  결과 출력 / Output Results                                                  #
+###############################################################################
 echo ""
-echo -e "${CYAN}Parsing stack outputs...${NC}"
+echo -e "${CYAN}결과 파싱 / Parsing outputs...${NC}"
 
 OUTPUTS=$(aws cloudformation describe-stacks \
     --stack-name AwsopsStack --region "$REGION" \
@@ -176,27 +388,48 @@ parse_output() {
 }
 
 CF_URL=$(parse_output "CloudFrontURL")
-INSTANCE_ID=$(parse_output "VSCodeServerInstanceId")
+INSTANCE_ID=$(parse_output "InstanceId")
 VPC_ID=$(parse_output "VPCId")
 ALB_DNS=$(parse_output "PublicALBEndpoint")
 
-# -- Summary -------------------------------------------------------------------
 echo ""
 echo -e "${GREEN}=================================================================${NC}"
-echo -e "${GREEN}   Step 0 Complete: Infrastructure deployed (CDK)${NC}"
+echo -e "${GREEN}   ✓ 배포 완료 / Deployment Complete${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo ""
-echo "  Stack:        AwsopsStack"
-echo "  Instance:     $INSTANCE_ID ($INSTANCE_TYPE)"
-echo "  VPC:          $VPC_ID"
-echo "  ALB:          $ALB_DNS"
-echo "  CloudFront:   $CF_URL"
+echo "  스택 / Stack:       AwsopsStack"
+echo "  리전 / Region:      $REGION"
+echo "  계정 / Account:     $ACCOUNT_ID"
+echo "  인스턴스 / Instance: $INSTANCE_ID ($INSTANCE_TYPE)"
+echo "  VPC:                $VPC_ID"
+echo "  ALB:                $ALB_DNS"
+echo "  CloudFront:         $CF_URL"
 echo ""
-echo "  VSCode:       $CF_URL"
-echo "  SSM:          aws ssm start-session --target $INSTANCE_ID --region $REGION"
+echo -e "  ${BOLD}┌─────────────────────────────────────────────────┐${NC}"
+echo -e "  ${BOLD}│  접속 방법 / How to Access                       │${NC}"
+echo -e "  ${BOLD}├─────────────────────────────────────────────────┤${NC}"
+echo -e "  │                                                 │"
+echo -e "  │  ${GREEN}방법 1: VSCode Server (브라우저)${NC}               │"
+echo -e "  │  URL: ${BOLD}${CF_URL}${NC}"
+echo -e "  │  비밀번호 / Password: (설정한 비밀번호)          │"
+echo -e "  │                                                 │"
+echo -e "  │  ${GREEN}방법 2: SSM Session Manager (터미널)${NC}          │"
+echo -e "  │  aws ssm start-session \\                       │"
+echo -e "  │    --target $INSTANCE_ID \\      │"
+echo -e "  │    --region $REGION                     │"
+echo -e "  │                                                 │"
+echo -e "  ${BOLD}└─────────────────────────────────────────────────┘${NC}"
 echo ""
-echo "  NOTE: PostgreSQL 별도 설치 불필요 (Steampipe에 내장)"
+echo "  NOTE: PostgreSQL 별도 설치 불필요 (Steampipe 내장)"
+echo "        No separate PostgreSQL needed (embedded in Steampipe)"
 echo ""
-echo "  Next: SSM으로 접속 후 AWSops 대시보드 설치"
-echo "    cd /home/ec2-user/awsops && bash scripts/install-all.sh"
+echo -e "  ${BOLD}다음 단계 / Next Step:${NC}"
+echo ""
+echo "  VSCode Server 또는 SSM으로 EC2에 접속한 후:"
+echo "  After connecting to EC2 via VSCode Server or SSM:"
+echo ""
+echo "    cd /home/ec2-user"
+echo "    git clone https://github.com/whchoi98/awsops.git"
+echo "    cd awsops"
+echo "    bash scripts/install-all.sh"
 echo ""
