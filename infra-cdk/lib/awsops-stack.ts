@@ -115,42 +115,49 @@ export class AwsopsStack extends cdk.Stack {
     ec2Sg.addIngressRule(albSg, ec2.Port.tcp(8888), 'VSCode from ALB');
     ec2Sg.addIngressRule(albSg, ec2.Port.tcp(3000), 'Dashboard from ALB');
 
-    // SSM Endpoints SG
-    const ssmSg = new ec2.SecurityGroup(this, 'SSMSecurityGroup', {
-      vpc: this.vpc,
-      description: 'SSM VPC Endpoints SG - HTTPS from VPC CIDR',
-      allowAllOutbound: true,
-    });
-    ssmSg.addIngressRule(ec2.Peer.ipv4('10.254.0.0/16'), ec2.Port.tcp(443), 'HTTPS from VPC');
-
     // -------------------------------------------------------
-    // SSM VPC Endpoints (for private subnet EC2 access)
+    // SSM VPC Endpoints: skipVpcEndpoints=true이면 건너뜀
+    // SSM VPC Endpoints: skip if context skipVpcEndpoints=true
+    // 00-deploy-infra.sh에서 기존 VPC의 endpoint 존재 여부를 확인 후 context 전달
+    // The deploy script checks if endpoints already exist and passes context
     // -------------------------------------------------------
-    const privateSubnets = this.vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS });
+    if (this.node.tryGetContext('skipVpcEndpoints') !== 'true') {
+      const ssmSg = new ec2.SecurityGroup(this, 'SSMSecurityGroup', {
+        vpc: this.vpc,
+        description: 'SSM VPC Endpoints SG - HTTPS from VPC CIDR',
+        allowAllOutbound: true,
+      });
+      // 기존 VPC는 CIDR이 다를 수 있으므로 0.0.0.0/0 대신 VPC CIDR 사용
+      // Use VPC CIDR instead of hardcoded range for existing VPCs
+      const vpcCidr = this.node.tryGetContext('useExistingVpc') === 'true'
+        ? (this.node.tryGetContext('vpcCidr') || '10.0.0.0/8')
+        : '10.254.0.0/16';
+      ssmSg.addIngressRule(ec2.Peer.ipv4(vpcCidr), ec2.Port.tcp(443), 'HTTPS from VPC CIDR');
 
-    new ec2.InterfaceVpcEndpoint(this, 'SSMEndpoint', {
-      vpc: this.vpc,
-      service: ec2.InterfaceVpcEndpointAwsService.SSM,
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [ssmSg],
-      privateDnsEnabled: true,
-    });
+      new ec2.InterfaceVpcEndpoint(this, 'SSMEndpoint', {
+        vpc: this.vpc,
+        service: ec2.InterfaceVpcEndpointAwsService.SSM,
+        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        securityGroups: [ssmSg],
+        privateDnsEnabled: true,
+      });
 
-    new ec2.InterfaceVpcEndpoint(this, 'SSMMessagesEndpoint', {
-      vpc: this.vpc,
-      service: ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [ssmSg],
-      privateDnsEnabled: true,
-    });
+      new ec2.InterfaceVpcEndpoint(this, 'SSMMessagesEndpoint', {
+        vpc: this.vpc,
+        service: ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
+        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        securityGroups: [ssmSg],
+        privateDnsEnabled: true,
+      });
 
-    new ec2.InterfaceVpcEndpoint(this, 'EC2MessagesEndpoint', {
-      vpc: this.vpc,
-      service: ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES,
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [ssmSg],
-      privateDnsEnabled: true,
-    });
+      new ec2.InterfaceVpcEndpoint(this, 'EC2MessagesEndpoint', {
+        vpc: this.vpc,
+        service: ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES,
+        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        securityGroups: [ssmSg],
+        privateDnsEnabled: true,
+      });
+    } // skipVpcEndpoints=true: 기존 endpoint 존재 시 건너뜀 / skip if already exist
 
     // -------------------------------------------------------
     // IAM Role for EC2 (SSM + CloudWatch)

@@ -283,8 +283,62 @@ if len(pub) < 1 or len(priv) < 1:
 fi
 
 echo ""
+SKIP_VPC_ENDPOINTS="false"
+VPC_CIDR=""
+
 if [ "$USE_EXISTING_VPC" = "true" ]; then
     echo -e "  ${GREEN}✓ 기존 VPC 사용 / Using existing VPC: $EXISTING_VPC_ID${NC}"
+
+    # VPC CIDR 조회 / Get VPC CIDR
+    VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$EXISTING_VPC_ID" --region "$REGION" \
+        --query "Vpcs[0].CidrBlock" --output text 2>/dev/null || echo "10.0.0.0/8")
+    echo "  VPC CIDR: $VPC_CIDR"
+
+    # SSM VPC Endpoint 존재 여부 확인 / Check if SSM endpoints already exist
+    echo ""
+    echo -e "  ${CYAN}VPC Endpoint 확인 중... / Checking VPC Endpoints...${NC}"
+    EXISTING_ENDPOINTS=$(aws ec2 describe-vpc-endpoints \
+        --filters "Name=vpc-id,Values=$EXISTING_VPC_ID" "Name=vpc-endpoint-state,Values=available" \
+        --query "VpcEndpoints[*].ServiceName" --output text --region "$REGION" 2>/dev/null || echo "")
+
+    SSM_EP="없음 / missing"
+    SSMMSG_EP="없음 / missing"
+    EC2MSG_EP="없음 / missing"
+
+    if echo "$EXISTING_ENDPOINTS" | grep -q "ssm\b"; then
+        SSM_EP="있음 / exists ✓"
+    fi
+    if echo "$EXISTING_ENDPOINTS" | grep -q "ssmmessages"; then
+        SSMMSG_EP="있음 / exists ✓"
+    fi
+    if echo "$EXISTING_ENDPOINTS" | grep -q "ec2messages"; then
+        EC2MSG_EP="있음 / exists ✓"
+    fi
+
+    echo "    SSM Endpoint:         $SSM_EP"
+    echo "    SSM Messages Endpoint: $SSMMSG_EP"
+    echo "    EC2 Messages Endpoint: $EC2MSG_EP"
+
+    # 3개 모두 있으면 건너뛰기 / Skip if all 3 exist
+    if echo "$EXISTING_ENDPOINTS" | grep -q "ssm" && \
+       echo "$EXISTING_ENDPOINTS" | grep -q "ssmmessages" && \
+       echo "$EXISTING_ENDPOINTS" | grep -q "ec2messages"; then
+        SKIP_VPC_ENDPOINTS="true"
+        echo -e "  ${GREEN}✓ 모든 SSM Endpoint가 존재합니다. 생성 건너뜀.${NC}"
+        echo -e "  ${GREEN}  All SSM Endpoints exist. Skipping creation.${NC}"
+    else
+        echo -e "  ${YELLOW}일부 Endpoint가 없습니다. 누락된 Endpoint를 생성합니다.${NC}"
+        echo -e "  ${YELLOW}Some endpoints missing. Will create missing ones.${NC}"
+        # 일부만 있으면 충돌 가능 → 전부 건너뛰고 수동 생성 안내
+        # If some exist, CDK can't create only missing ones → skip all
+        if [ "$SSM_EP" != "없음 / missing" ] || [ "$SSMMSG_EP" != "없음 / missing" ] || [ "$EC2MSG_EP" != "없음 / missing" ]; then
+            SKIP_VPC_ENDPOINTS="true"
+            echo -e "  ${YELLOW}⚠ 기존 Endpoint와 충돌 방지를 위해 CDK에서 건너뜁니다.${NC}"
+            echo -e "  ${YELLOW}  Skipping in CDK to avoid conflict with existing endpoints.${NC}"
+            echo -e "  ${YELLOW}  누락된 Endpoint는 수동 생성하세요.${NC}"
+            echo -e "  ${YELLOW}  Create missing endpoints manually if needed.${NC}"
+        fi
+    fi
 else
     echo -e "  ${GREEN}✓ 새 VPC 생성 / Creating new VPC (10.254.0.0/16)${NC}"
 fi
@@ -443,9 +497,13 @@ echo ""
 
 cd "$CDK_DIR"
 
+# CDK 컨텍스트 구성 / Build CDK context
 CDK_CONTEXT=""
 if [ -n "$EXISTING_VPC_ID" ]; then
-    CDK_CONTEXT="-c useExistingVpc=true -c vpcId=$EXISTING_VPC_ID"
+    CDK_CONTEXT="-c useExistingVpc=true -c vpcId=$EXISTING_VPC_ID -c vpcCidr=${VPC_CIDR:-10.0.0.0/8}"
+fi
+if [ "$SKIP_VPC_ENDPOINTS" = "true" ]; then
+    CDK_CONTEXT="$CDK_CONTEXT -c skipVpcEndpoints=true"
 fi
 
 npx cdk deploy AwsopsStack \
