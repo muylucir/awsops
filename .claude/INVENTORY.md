@@ -1,21 +1,21 @@
-# Project Inventory / 프로젝트 인벤토리 (Auto-Generated / 자동 생성)
-> Auto-updated by `.claude/hooks/post-save.sh` — do not edit manually.
-> (`.claude/hooks/post-save.sh`에 의해 자동 업데이트 — 수동 편집 금지.)
-> Last updated: 2026-03-06 08:09 UTC (최종 업데이트: 2026-03-06 08:09 UTC)
+# 프로젝트 인벤토리 / Project Inventory (자동 생성 / Auto-Generated)
+> `.claude/hooks/post-save.sh`에 의해 자동 업데이트 — 수동 편집 금지.
+> (Auto-updated by `.claude/hooks/post-save.sh` — do not edit manually.)
+> 최종 업데이트: 2026-03-06 08:09 UTC (Last updated: 2026-03-06 08:09 UTC)
 
-| Category (카테고리) | Count (수량) |
+| 카테고리 (Category) | 수량 (Count) |
 |----------|-------|
-| Pages (페이지) | 24 |
-| API Routes (API 라우트) | 4 |
-| Query Files (쿼리 파일) | 16 |
-| Components (컴포넌트) | 14 |
-| Skills (스킬) | 3 |
-| ADRs (아키텍처 결정 기록) | 3 |
-| Runbooks (런북) | 2 |
-| Prompts (프롬프트) | 1 |
-| Scripts (스크립트) | 11 |
+| 페이지 (Pages) | 24 |
+| API 라우트 (API Routes) | 4 |
+| 쿼리 파일 (Query Files) | 16 |
+| 컴포넌트 (Components) | 14 |
+| 스킬 (Skills) | 3 |
+| 아키텍처 결정 기록 (ADRs) | 3 |
+| 런북 (Runbooks) | 2 |
+| 프롬프트 (Prompts) | 1 |
+| 스크립트 (Scripts) | 11 |
 
-## Pages / 페이지
+## 페이지 / Pages
 - `/awsops/ai` → `src/app/ai/page.tsx`
 - `/awsops/cloudtrail` → `src/app/cloudtrail/page.tsx`
 - `/awsops/cloudwatch` → `src/app/cloudwatch/page.tsx`
@@ -41,31 +41,31 @@
 - `/awsops/topology` → `src/app/topology/page.tsx`
 - `/awsops/vpc` → `src/app/vpc/page.tsx`
 
-## API Routes / API 라우트
+## API 라우트 / API Routes
 - `/awsops/api/ai` → `src/app/api/ai/route.ts` (AI 라우팅)
 - `/awsops/api/benchmark` → `src/app/api/benchmark/route.ts` (벤치마크)
 - `/awsops/api/code` → `src/app/api/code/route.ts` (코드 실행)
 - `/awsops/api/steampipe` → `src/app/api/steampipe/route.ts` (Steampipe 쿼리)
 
-## Query Files / 쿼리 파일
-- `cloudtrail` (5 queries / 5개 쿼리)
-- `cloudwatch` (4 queries / 4개 쿼리)
-- `cost` (4 queries / 4개 쿼리)
-- `dynamodb` (3 queries / 3개 쿼리)
-- `ec2` (5 queries / 5개 쿼리)
-- `ecs` (5 queries / 5개 쿼리)
-- `elasticache` (6 queries / 6개 쿼리)
-- `iam` (5 queries / 5개 쿼리)
-- `k8s` (15 queries / 15개 쿼리)
-- `lambda` (4 queries / 4개 쿼리)
-- `metrics` (13 queries / 13개 쿼리)
-- `rds` (4 queries / 4개 쿼리)
-- `relationships` (8 queries / 8개 쿼리)
-- `s3` (4 queries / 4개 쿼리)
-- `security` (7 queries / 7개 쿼리)
-- `vpc` (17 queries / 17개 쿼리)
+## 쿼리 파일 / Query Files
+- `cloudtrail` (5개 쿼리 / 5 queries)
+- `cloudwatch` (4개 쿼리 / 4 queries)
+- `cost` (4개 쿼리 / 4 queries)
+- `dynamodb` (3개 쿼리 / 3 queries)
+- `ec2` (5개 쿼리 / 5 queries)
+- `ecs` (5개 쿼리 / 5 queries)
+- `elasticache` (6개 쿼리 / 6 queries)
+- `iam` (5개 쿼리 / 5 queries)
+- `k8s` (15개 쿼리 / 15 queries)
+- `lambda` (4개 쿼리 / 4 queries)
+- `metrics` (13개 쿼리 / 13 queries)
+- `rds` (4개 쿼리 / 4 queries)
+- `relationships` (8개 쿼리 / 8 queries)
+- `s3` (4개 쿼리 / 4 queries)
+- `security` (7개 쿼리 / 7 queries)
+- `vpc` (17개 쿼리 / 17 queries)
 
-## Components / 컴포넌트
+## 컴포넌트 / Components
 - `src/components/charts/BarChartCard.tsx` (막대 차트 카드)
 - `src/components/charts/LineChartCard.tsx` (라인 차트 카드)
 - `src/components/charts/PieChartCard.tsx` (파이 차트 카드)
@@ -81,32 +81,32 @@
 - `src/components/layout/Sidebar.tsx` (사이드바)
 - `src/components/table/DataTable.tsx` (데이터 테이블)
 
-## Skills / 스킬
+## 스킬 / Skills
 - `code-review` → `.claude/skills/code-review/SKILL.md` (코드 리뷰)
 - `refactor` → `.claude/skills/refactor/SKILL.md` (리팩토링)
 - `release` → `.claude/skills/release/SKILL.md` (릴리스)
 
-## Architecture Decisions / 아키텍처 결정 기록
-- `001-steampipe-pg-pool.md` — ADR-001: Steampipe pg Pool over CLI (Steampipe pg Pool 사용 결정)
-- `002-ai-hybrid-routing.md` — ADR-002: AI Hybrid Routing (AI 하이브리드 라우팅)
-- `003-scp-column-handling.md` — ADR-003: SCP-Blocked Column Handling (SCP 차단 컬럼 처리)
+## 아키텍처 결정 기록 / Architecture Decisions
+- `001-steampipe-pg-pool.md` — ADR-001: Steampipe pg Pool 사용 결정 (Steampipe pg Pool over CLI)
+- `002-ai-hybrid-routing.md` — ADR-002: AI 하이브리드 라우팅 (AI Hybrid Routing)
+- `003-scp-column-handling.md` — ADR-003: SCP 차단 컬럼 처리 (SCP-Blocked Column Handling)
 
-## Runbooks / 런북
-- `add-new-page.md` — Runbook: Add New Dashboard Page (새 대시보드 페이지 추가)
-- `start-services.md` — Runbook: Start Services (서비스 시작)
+## 런북 / Runbooks
+- `add-new-page.md` — Runbook: 새 대시보드 페이지 추가 (Add New Dashboard Page)
+- `start-services.md` — Runbook: 서비스 시작 (Start Services)
 
-## Prompts / 프롬프트
-- `analyze-resources.md` — Prompt: Analyze AWS Resources (AWS 리소스 분석)
+## 프롬프트 / Prompts
+- `analyze-resources.md` — Prompt: AWS 리소스 분석 (Analyze AWS Resources)
 
-## Scripts / 스크립트
-- `00-deploy-infra.sh` — Deploy EC2 Infrastructure via CloudFormation (CloudFormation으로 EC2 인프라 배포)
-- `01-install-base.sh` — Steampipe + Plugins + Powerpipe Installation (Steampipe + 플러그인 + Powerpipe 설치)
-- `02-setup-nextjs.sh` — Next.js + Steampipe Service Setup (Next.js + Steampipe 서비스 설정)
-- `03-build-deploy.sh` — Build & Deploy Next.js Production (Next.js 프로덕션 빌드 및 배포)
-- `04-setup-alb.sh` — ALB Listener Setup for Dashboard (대시보드용 ALB 리스너 설정)
-- `05-setup-cognito.sh` — Cognito Authentication Setup (Cognito 인증 설정)
-- `06-setup-agentcore.sh` — AgentCore Runtime + Gateway Setup (AgentCore 런타임 + 게이트웨이 설정)
-- `07-start-all.sh` — Start All Services (전체 서비스 시작)
-- `08-stop-all.sh` — Stop All Services (전체 서비스 중지)
-- `09-verify.sh` — Verification & Health Check (검증 및 상태 확인)
-- `install-all.sh` — Full Installation (전체 설치)
+## 스크립트 / Scripts
+- `00-deploy-infra.sh` — CloudFormation으로 EC2 인프라 배포 (Deploy EC2 Infrastructure via CloudFormation)
+- `01-install-base.sh` — Steampipe + 플러그인 + Powerpipe 설치 (Steampipe + Plugins + Powerpipe Installation)
+- `02-setup-nextjs.sh` — Next.js + Steampipe 서비스 설정 (Next.js + Steampipe Service Setup)
+- `03-build-deploy.sh` — Next.js 프로덕션 빌드 및 배포 (Build & Deploy Next.js Production)
+- `04-setup-alb.sh` — 대시보드용 ALB 리스너 설정 (ALB Listener Setup for Dashboard)
+- `05-setup-cognito.sh` — Cognito 인증 설정 (Cognito Authentication Setup)
+- `06-setup-agentcore.sh` — AgentCore 런타임 + 게이트웨이 설정 (AgentCore Runtime + Gateway Setup)
+- `07-start-all.sh` — 전체 서비스 시작 (Start All Services)
+- `08-stop-all.sh` — 전체 서비스 중지 (Stop All Services)
+- `09-verify.sh` — 검증 및 상태 확인 (Verification & Health Check)
+- `install-all.sh` — 전체 설치 (Full Installation)

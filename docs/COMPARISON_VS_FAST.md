@@ -1,4 +1,4 @@
-# AWSops Dashboard vs FAST (Fullstack AgentCore Solution Template) 비교
+# AWSops Dashboard vs FAST (Fullstack AgentCore Solution Template) 비교 / Comparison
 
 ## 요약
 
@@ -11,7 +11,7 @@
 
 ---
 
-## 1. Architecture 비교
+## 1. 아키텍처 비교 / Architecture Comparison
 
 ### FAST
 ```

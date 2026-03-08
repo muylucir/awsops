@@ -1,6 +1,6 @@
-# AWSops Dashboard - Troubleshooting Guide
+# AWSops 대시보드 - 문제 해결 가이드 / AWSops Dashboard - Troubleshooting Guide
 
-## 설치 중 발생했던 이슈와 해결 방법
+## 설치 중 발생했던 이슈와 해결 방법 (Issues and Solutions During Installation)
 
 ---
 
@@ -182,7 +182,7 @@ import Header from '@/components/layout/Header';
 
 ---
 
-## Quick Diagnosis Commands
+## 빠른 진단 명령어 / Quick Diagnosis Commands
 
 ```bash
 # Steampipe 상태
