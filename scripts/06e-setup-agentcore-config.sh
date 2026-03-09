@@ -65,7 +65,8 @@ GATEWAYS_JSON=$(aws bedrock-agentcore-control list-gateways --region "$REGION" -
 
 for GW_KEY in infra iac data security monitoring cost ops; do
     GW_NAME="awsops-${GW_KEY}-gateway"
-    GW_ID=$(echo "$GATEWAYS_JSON" | python3 -c "import json,sys;gws=json.load(sys.stdin).get('items',[]);print(next((g['gatewayId'] for g in gws if '${GW_KEY}' in g.get('name','')), ''))" 2>/dev/null || echo "")
+    # 정확한 이름 매칭 (awsops-{key}-gateway) / Exact name match
+    GW_ID=$(echo "$GATEWAYS_JSON" | python3 -c "import json,sys;gws=json.load(sys.stdin).get('items',[]);print(next((g['gatewayId'] for g in gws if g.get('name','')=='awsops-${GW_KEY}-gateway'), ''))" 2>/dev/null || echo "")
     if [ -n "$GW_ID" ]; then
         GW_MAP[$GW_KEY]="$GW_ID"
         GW_URL="https://${GW_ID}.gateway.bedrock-agentcore.${REGION}.amazonaws.com/mcp"
