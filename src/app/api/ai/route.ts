@@ -138,17 +138,49 @@ Rules:
 - Return ONLY the SQL query, no explanation, no markdown, no code blocks.
 - Do NOT add LIMIT unless the user explicitly asks for a specific number.
 - Use single quotes for string values: tags ->> 'Name'
-- Common tables: aws_ec2_instance, aws_s3_bucket, aws_vpc, aws_vpc_subnet, aws_lambda_function, aws_rds_db_instance, aws_iam_user, aws_iam_role, aws_ec2_application_load_balancer, aws_vpc_security_group, aws_ecs_cluster, aws_ecs_service, aws_eks_cluster, kubernetes_pod
-- Column names: instance_state (not state), versioning_enabled (not versioning), class (not db_instance_class for RDS)
-- For resource names: tags ->> 'Name' AS name
-- Avoid: mfa_enabled, attached_policy_arns, Lambda tags columns (SCP blocks hydrate)
 - No $ in SQL — use conditions::text LIKE '%..%' instead of jsonb_path_exists
-- Always include key columns: ID, name/tags, type, state/status
-- For counts/summaries: use COUNT(*), GROUP BY as needed
+- Always include key identifying columns: ID, name/tags, type, state/status
+- Avoid: mfa_enabled, attached_policy_arns, Lambda tags columns (SCP blocks hydrate)
+
+EXACT column names for key tables (use ONLY these, not guessed names):
+
+aws_ec2_instance:
+  instance_id, instance_type, instance_state, private_ip_address, public_ip_address,
+  placement_availability_zone (NOT availability_zone), vpc_id, subnet_id, key_name,
+  launch_time, image_id, platform, monitoring_state, security_groups,
+  tags ->> 'Name' AS name (for resource name)
+
+aws_s3_bucket:
+  name, region, versioning_enabled (NOT versioning), bucket_policy_is_public, creation_date
+
+aws_vpc:
+  vpc_id, cidr_block, state, is_default, tags ->> 'Name' AS name
+
+aws_rds_db_instance:
+  db_instance_identifier, engine, engine_version, class AS instance_class (NOT db_instance_class),
+  status, allocated_storage, multi_az, availability_zone, vpc_id
+
+aws_lambda_function:
+  name, runtime, handler, memory_size, timeout, last_modified
+
+aws_iam_user:
+  name, arn, create_date, password_last_used
+
+aws_iam_role:
+  name, arn, create_date, max_session_duration
+
+aws_vpc_security_group:
+  group_id, group_name, vpc_id, description
+
+aws_ec2_application_load_balancer:
+  name, type, scheme, state_code, vpc_id, dns_name
+
+kubernetes_pod:
+  name, namespace, phase, node_name, creation_timestamp
 
 Examples:
-- "EC2 현황" → SELECT instance_id, tags ->> 'Name' AS name, instance_type, instance_state, private_ip_address FROM aws_ec2_instance ORDER BY instance_state
-- "S3 버킷 목록" → SELECT name, region, versioning_enabled, bucket_policy_is_public FROM aws_s3_bucket
+- "EC2 현황" → SELECT instance_id, tags ->> 'Name' AS name, instance_type, instance_state, placement_availability_zone AS az, private_ip_address, launch_time FROM aws_ec2_instance ORDER BY instance_state
+- "S3 버킷 목록" → SELECT name, region, versioning_enabled, bucket_policy_is_public FROM aws_s3_bucket ORDER BY name
 - "전체 리소스 요약" → SELECT 'EC2' AS resource, COUNT(*) AS count FROM aws_ec2_instance UNION ALL SELECT 'VPC', COUNT(*) FROM aws_vpc UNION ALL SELECT 'RDS', COUNT(*) FROM aws_rds_db_instance UNION ALL SELECT 'Lambda', COUNT(*) FROM aws_lambda_function UNION ALL SELECT 'S3', COUNT(*) FROM aws_s3_bucket`;
 
 // Generate SQL from user question using Sonnet / Sonnet으로 사용자 질문에서 SQL 생성
@@ -369,14 +401,32 @@ export async function POST(request: NextRequest) {
 
     // AWS Data route: Sonnet generates SQL → pg Pool executes → Sonnet analyzes results
     // AWS 데이터 라우트: Sonnet이 SQL 생성 → pg Pool 실행 → Sonnet이 결과 분석
+    // Includes auto-retry on SQL errors (wrong column names, etc.) / SQL 오류 시 자동 재시도 포함
     if (route === 'aws-data') {
       const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
-      const sql = await generateSQL(messages);
+      let sql = await generateSQL(messages);
+      let queryResult: { data: string; rowCount: number; error?: string } | null = null;
 
-      if (sql) {
-        console.log(`[AWS-Data] Generated SQL: ${sql}`);
-        const queryResult = await queryAWS(sql);
+      // Try up to 2 times: initial + 1 retry on SQL error / 최대 2회 시도: 초기 + SQL 오류 시 1회 재시도
+      for (let attempt = 0; attempt < 2 && sql; attempt++) {
+        console.log(`[AWS-Data] Attempt ${attempt + 1}, SQL: ${sql}`);
+        queryResult = await queryAWS(sql);
 
+        if (!queryResult.error) break;
+
+        // On error, ask Sonnet to fix the SQL / 오류 시 Sonnet에게 SQL 수정 요청
+        if (attempt === 0) {
+          console.warn(`[AWS-Data] SQL error: ${queryResult.error}, retrying with fix`);
+          const fixMessages = [
+            ...messages.slice(-4),
+            { role: 'assistant' as const, content: `I generated this SQL: ${sql}` },
+            { role: 'user' as const, content: `That SQL failed with error: ${queryResult.error}. Fix the SQL using only valid column names.` },
+          ];
+          sql = await generateSQL(fixMessages);
+        }
+      }
+
+      if (sql && queryResult && !queryResult.error) {
         // Build context with query results for AI analysis / AI 분석을 위해 쿼리 결과로 컨텍스트 구성
         const contextData = `\n\n--- LIVE AWS RESOURCE DATA (${queryResult.rowCount} rows) ---\nSQL: ${sql}\n\`\`\`json\n${queryResult.data}\n\`\`\``;
         const bedrockMessages = messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content }));
@@ -403,8 +453,8 @@ export async function POST(request: NextRequest) {
           route,
         });
       }
-      // SQL generation failed, fall through to AgentCore / SQL 생성 실패 시 AgentCore로 폴스루
-      console.warn('[AWS-Data] SQL generation failed, falling through to AgentCore');
+      // SQL generation/execution failed, fall through to AgentCore / SQL 생성/실행 실패 시 AgentCore로 폴스루
+      console.warn(`[AWS-Data] SQL failed after retries, falling through to AgentCore`);
     }
 
     // AgentCore Gateway routes (infra, iac, data, security, monitoring, cost, general)
