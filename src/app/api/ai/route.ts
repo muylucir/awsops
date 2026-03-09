@@ -11,6 +11,7 @@ import {
   InvokeCodeInterpreterCommand,
   StopCodeInterpreterSessionCommand,
 } from '@aws-sdk/client-bedrock-agentcore';
+import { runQuery } from '@/lib/steampipe';
 
 // Service configuration / 서비스 설정
 const BEDROCK_REGION = 'us-east-1';
@@ -127,6 +128,65 @@ async function classifyIntent(messages: Array<{role: string; content: string}>):
   } catch (err: any) {
     console.error(`[Intent] Classification failed: ${err.message}, falling back to general`);
     return 'general';
+  }
+}
+
+// SQL generation prompt for aws-data route / aws-data 라우트용 SQL 생성 프롬프트
+const SQL_GEN_PROMPT = `You are a Steampipe SQL expert. Generate a PostgreSQL SELECT query for the user's AWS resource question.
+
+Rules:
+- Return ONLY the SQL query, no explanation, no markdown, no code blocks.
+- Do NOT add LIMIT unless the user explicitly asks for a specific number.
+- Use single quotes for string values: tags ->> 'Name'
+- Common tables: aws_ec2_instance, aws_s3_bucket, aws_vpc, aws_vpc_subnet, aws_lambda_function, aws_rds_db_instance, aws_iam_user, aws_iam_role, aws_ec2_application_load_balancer, aws_vpc_security_group, aws_ecs_cluster, aws_ecs_service, aws_eks_cluster, kubernetes_pod
+- Column names: instance_state (not state), versioning_enabled (not versioning), class (not db_instance_class for RDS)
+- For resource names: tags ->> 'Name' AS name
+- Avoid: mfa_enabled, attached_policy_arns, Lambda tags columns (SCP blocks hydrate)
+- No $ in SQL — use conditions::text LIKE '%..%' instead of jsonb_path_exists
+- Always include key columns: ID, name/tags, type, state/status
+- For counts/summaries: use COUNT(*), GROUP BY as needed
+
+Examples:
+- "EC2 현황" → SELECT instance_id, tags ->> 'Name' AS name, instance_type, instance_state, private_ip_address FROM aws_ec2_instance ORDER BY instance_state
+- "S3 버킷 목록" → SELECT name, region, versioning_enabled, bucket_policy_is_public FROM aws_s3_bucket
+- "전체 리소스 요약" → SELECT 'EC2' AS resource, COUNT(*) AS count FROM aws_ec2_instance UNION ALL SELECT 'VPC', COUNT(*) FROM aws_vpc UNION ALL SELECT 'RDS', COUNT(*) FROM aws_rds_db_instance UNION ALL SELECT 'Lambda', COUNT(*) FROM aws_lambda_function UNION ALL SELECT 'S3', COUNT(*) FROM aws_s3_bucket`;
+
+// Generate SQL from user question using Sonnet / Sonnet으로 사용자 질문에서 SQL 생성
+async function generateSQL(messages: Array<{role: string; content: string}>): Promise<string | null> {
+  try {
+    const body = JSON.stringify({
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 500,
+      system: SQL_GEN_PROMPT,
+      messages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+    });
+    const response = await bedrockClient.send(new InvokeModelCommand({
+      modelId: MODELS['sonnet-4.6'],
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: new TextEncoder().encode(body),
+    }));
+    const result = JSON.parse(new TextDecoder().decode(response.body));
+    let sql = (result.content?.[0]?.text || '').trim();
+    // Strip markdown code block if present / 마크다운 코드 블록 제거
+    sql = sql.replace(/^```(?:sql)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+    if (!sql.toLowerCase().startsWith('select')) return null;
+    return sql;
+  } catch (err: any) {
+    console.error('[SQL Gen] Failed:', err.message);
+    return null;
+  }
+}
+
+// Execute Steampipe query via pg Pool / pg Pool을 통해 Steampipe 쿼리 실행
+async function queryAWS(sql: string): Promise<{ data: string; rowCount: number; error?: string }> {
+  try {
+    const result = await runQuery(sql);
+    if (result.error) return { data: `Query error: ${result.error}`, rowCount: 0, error: result.error };
+    if (result.rows.length === 0) return { data: 'No results found.', rowCount: 0 };
+    return { data: JSON.stringify(result.rows, null, 2), rowCount: result.rows.length };
+  } catch (e: any) {
+    return { data: `Error: ${e.message}`, rowCount: 0, error: e.message };
   }
 }
 
@@ -307,8 +367,48 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // AgentCore Gateway routes (infra, iac, data, security, monitoring, cost, aws-data, general)
-    // AgentCore 게이트웨이 라우트 (인프라, IaC, 데이터, 보안, 모니터링, 비용, AWS데이터, 일반)
+    // AWS Data route: Sonnet generates SQL → pg Pool executes → Sonnet analyzes results
+    // AWS 데이터 라우트: Sonnet이 SQL 생성 → pg Pool 실행 → Sonnet이 결과 분석
+    if (route === 'aws-data') {
+      const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
+      const sql = await generateSQL(messages);
+
+      if (sql) {
+        console.log(`[AWS-Data] Generated SQL: ${sql}`);
+        const queryResult = await queryAWS(sql);
+
+        // Build context with query results for AI analysis / AI 분석을 위해 쿼리 결과로 컨텍스트 구성
+        const contextData = `\n\n--- LIVE AWS RESOURCE DATA (${queryResult.rowCount} rows) ---\nSQL: ${sql}\n\`\`\`json\n${queryResult.data}\n\`\`\``;
+        const bedrockMessages = messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content }));
+        bedrockMessages[bedrockMessages.length - 1].content += contextData;
+
+        const body = JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 4096,
+          system: SYSTEM_PROMPT,
+          messages: bedrockMessages,
+        });
+
+        const response = await bedrockClient.send(new InvokeModelCommand({
+          modelId, contentType: 'application/json', accept: 'application/json',
+          body: new TextEncoder().encode(body),
+        }));
+
+        const result = JSON.parse(new TextDecoder().decode(response.body));
+        return NextResponse.json({
+          content: result.content?.[0]?.text || 'No response',
+          model: modelKey || 'sonnet-4.6',
+          via: `Bedrock + Steampipe (${queryResult.rowCount} rows)`,
+          queriedResources: ['steampipe'],
+          route,
+        });
+      }
+      // SQL generation failed, fall through to AgentCore / SQL 생성 실패 시 AgentCore로 폴스루
+      console.warn('[AWS-Data] SQL generation failed, falling through to AgentCore');
+    }
+
+    // AgentCore Gateway routes (infra, iac, data, security, monitoring, cost, general)
+    // AgentCore 게이트웨이 라우트 (인프라, IaC, 데이터, 보안, 모니터링, 비용, 일반)
     const gateway = ROUTE_TO_GATEWAY[route] || 'ops';
     const agentResponse = await invokeAgentCore(messages, gateway);
 
