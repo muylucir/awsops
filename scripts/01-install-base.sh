@@ -52,20 +52,19 @@ echo "  Plugins: aws, kubernetes, trivy"
 #   See: docs/TROUBLESHOOTING.md #2 (SCP 차단)
 echo ""
 echo -e "${CYAN}[3/6] Configuring AWS plugin (aws.spc)...${NC}"
-cat > ~/.steampipe/config/aws.spc << 'EOF'
+# 배포 리전만 조회 (모든 리전 조회 시 30+ 리전으로 타임아웃 발생)
+# Only query the deployment region (querying all regions causes timeout)
+echo -e "  ${YELLOW}NOTE: regions = [\"$REGION\"] (배포 리전만 조회 / deployment region only)${NC}"
+echo -e "  ${YELLOW}  모든 리전 조회가 필요하면: regions = [\"*\"] 로 변경${NC}"
+cat > ~/.steampipe/config/aws.spc << EOF
 connection "aws" {
   plugin = "aws"
 
-  # Region configuration (leave empty to use default from env/profile)
-  # regions = ["ap-northeast-2"]
-  # regions = ["ap-northeast-2", "us-east-1"]
+  # 배포 리전만 조회 (성능 최적화) / Query deployment region only (performance)
+  # 모든 리전 필요 시 ["*"] 로 변경 / Change to ["*"] for all regions
+  regions = ["$REGION"]
 
-  # FIX: SCP/permission error handling (required in Organization environments)
-  # When SCP blocks APIs like iam:ListMFADevices or lambda:GetFunction,
-  # the hydrate call fails. This setting returns empty values instead of
-  # failing the entire query.
-  # NOTE: This only handles TABLE-level errors. COLUMN hydrate errors
-  # require removing the column from the query itself.
+  # SCP/권한 에러 무시 / Ignore SCP/permission errors
   ignore_error_codes = [
     "AccessDenied",
     "AccessDeniedException",
