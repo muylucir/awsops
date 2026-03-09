@@ -147,8 +147,12 @@ for ENTRY in "${SELECTED_CLUSTERS[@]}"; do
     CR="${ENTRY%%:*}"
     CN="${ENTRY##*:}"
     echo "  $CN ($CR)..."
-    aws eks update-kubeconfig --name "$CN" --region "$CR" 2>&1 | sed 's/^/    /'
+    # ec2-user 홈에 kubeconfig 생성 (SSM은 root로 실행되므로 명시적 경로 지정)
+    # Explicit path since SSM runs as root, but Steampipe/Next.js runs as ec2-user
+    aws eks update-kubeconfig --name "$CN" --region "$CR" \
+        --kubeconfig /home/ec2-user/.kube/config 2>&1 | sed 's/^/    /'
 done
+chown -R ec2-user:ec2-user /home/ec2-user/.kube 2>/dev/null || true
 
 echo "  kubeconfig 위치 / Location: ~/.kube/config"
 echo "  컨텍스트 목록 / Contexts:"
@@ -253,19 +257,20 @@ for ENTRY in "${SELECTED_CLUSTERS[@]}"; do
     echo ""
     echo "  클러스터 / Cluster: $CN ($CR)"
 
-    # kubectl 테스트 / kubectl test
+    # kubectl 테스트 (ec2-user로 실행) / kubectl test (run as ec2-user)
     echo -n "    kubectl:    "
-    if kubectl get nodes --context "$CONTEXT" --request-timeout=10s &>/dev/null; then
-        NODE_COUNT=$(kubectl get nodes --context "$CONTEXT" --no-headers 2>/dev/null | wc -l)
+    KUBECONFIG=/home/ec2-user/.kube/config
+    if sudo -u ec2-user kubectl get nodes --context "$CONTEXT" --request-timeout=10s &>/dev/null; then
+        NODE_COUNT=$(sudo -u ec2-user kubectl get nodes --context "$CONTEXT" --no-headers 2>/dev/null | wc -l)
         echo -e "${GREEN}✓ 연결됨 / Connected ($NODE_COUNT nodes)${NC}"
     else
         echo -e "${RED}✗ 연결 실패 / Connection failed${NC}"
         echo -e "    ${YELLOW}  EKS 접근 항목 등록을 확인하세요 / Check access entry registration${NC}"
     fi
 
-    # Steampipe 테스트 / Steampipe test
+    # Steampipe 테스트 (ec2-user로 실행) / Steampipe test (run as ec2-user)
     echo -n "    steampipe:  "
-    SP_RESULT=$(steampipe query "SELECT count(*) as cnt FROM kubernetes_namespace" --output json 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('rows',[{}])[0].get('cnt','0'))" 2>/dev/null || echo "0")
+    SP_RESULT=$(sudo -u ec2-user steampipe query "SELECT count(*) as cnt FROM kubernetes_namespace" --output json 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('rows',[{}])[0].get('cnt','0'))" 2>/dev/null || echo "0")
     if [ "$SP_RESULT" != "0" ] && [ -n "$SP_RESULT" ]; then
         echo -e "${GREEN}✓ 조회됨 / Working ($SP_RESULT namespaces)${NC}"
     else
