@@ -358,7 +358,7 @@ Step 3: Build + Deploy                   ← 03-build-deploy.sh
   │     └─ npm run start (port 3000)
   │
   ▼
-Step 9: 검증 (46항목)                    ← 09-verify.sh
+Step 9: 검증 (46항목)                    ← 10-verify.sh
   │     ├─ Services (2)
   │     ├─ Queries (18 테이블)
   │     ├─ Pages (20 페이지)
