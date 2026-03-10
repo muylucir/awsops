@@ -50,11 +50,11 @@ def create_target(gw_id, name, fn, desc, tools):
         print('  ERR: {} -> {}'.format(name, str(e)[:150]))
 
 
-# ========== INFRA GATEWAY ==========
-print('\n=== Infra Gateway ===')
-gw = find_gateway('infra-gateway')
+# ========== NETWORK GATEWAY (was Infra) ==========
+print('\n=== Network Gateway ===')
+gw = find_gateway('network-gateway')
 if not gw:
-    print('ERROR: Infra gateway not found'); sys.exit(1)
+    print('ERROR: Network gateway not found'); sys.exit(1)
 
 create_target(gw, 'network-mcp-target', 'awsops-network-mcp',
     'AWS Network MCP - VPC, TGW, VPN, ENI, Firewall, Flow Logs (15 tools)',
@@ -85,6 +85,12 @@ create_target(gw, 'flow-monitor-target', 'awsops-flow-monitor',
     'VPC Flow Log analyzer',
     [{'name': 'query_flow_logs', 'description': 'Query flow logs',
       'inputSchema': {'type': 'object', 'properties': {'vpc_id': prop('string', 'VPC ID')}, 'required': ['vpc_id']}}])
+
+# ========== CONTAINER GATEWAY ==========
+print('\n=== Container Gateway ===')
+gw = find_gateway('container-gateway')
+if not gw:
+    print('ERROR: Container gateway not found'); sys.exit(1)
 
 create_target(gw, 'eks-mcp-target', 'awsops-eks-mcp',
     'EKS cluster management, K8s resources, CloudWatch',

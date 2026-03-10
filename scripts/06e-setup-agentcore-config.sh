@@ -63,7 +63,7 @@ echo "  Gateways:"
 declare -A GW_MAP
 GATEWAYS_JSON=$(aws bedrock-agentcore-control list-gateways --region "$REGION" --output json 2>/dev/null)
 
-for GW_KEY in infra iac data security monitoring cost ops; do
+for GW_KEY in network container iac data security monitoring cost ops; do
     GW_NAME="awsops-${GW_KEY}-gateway"
     # 정확한 이름 매칭 (awsops-{key}-gateway) / Exact name match
     GW_ID=$(echo "$GATEWAYS_JSON" | python3 -c "import json,sys;gws=json.load(sys.stdin).get('items',[]);print(next((g['gatewayId'] for g in gws if g.get('name','')=='awsops-${GW_KEY}-gateway'), ''))" 2>/dev/null || echo "")
@@ -125,7 +125,7 @@ fi
 cp "$AGENT_FILE" "${AGENT_FILE}.bak"
 
 # 각 Gateway URL 업데이트 / Update each Gateway URL
-for GW_KEY in infra iac data security monitoring cost ops; do
+for GW_KEY in network container iac data security monitoring cost ops; do
     GW_ID="${GW_MAP[$GW_KEY]}"
     if [ -n "$GW_ID" ]; then
         NEW_URL="https://${GW_ID}.gateway.bedrock-agentcore.${REGION}.amazonaws.com/mcp"
@@ -181,7 +181,7 @@ echo "  Runtime:            $RUNTIME_ID"
 echo "  Code Interpreter:   $CI_ID"
 echo ""
 echo "  Gateways:"
-for GW_KEY in infra iac data security monitoring cost ops; do
+for GW_KEY in network container iac data security monitoring cost ops; do
     GW_ID="${GW_MAP[$GW_KEY]}"
     [ -n "$GW_ID" ] && echo "    ${GW_KEY}: ${GW_ID}"
 done

@@ -47,31 +47,34 @@ QUESTION_BANK = OrderedDict([
         ("security", "루트 계정 보안",           "루트 계정의 보안 상태를 점검해줘"),
     ]),
 
-    ("infra", [
+    ("network", [
         # VPC / Network / VPC / 네트워크
-        ("infra", "VPC 현황",                  "VPC 현황과 서브넷 구성을 알려줘"),
-        ("infra", "보안그룹",                   "보안그룹 규칙을 확인해줘"),
-        ("infra", "네트워크 토폴로지",           "전체 네트워크 구성을 설명해줘"),
-        ("infra", "라우트 테이블",              "VPC 라우트 테이블을 조회해줘"),
-        ("infra", "NAT Gateway",              "NAT Gateway 상태와 사용량을 확인해줘"),
-        ("infra", "ENI 조회",                  "10.0.0.1 IP를 사용하는 ENI를 찾아줘"),
-        # Transit Gateway / Transit Gateway
-        ("infra", "TGW 현황",                  "Transit Gateway 현황과 라우팅을 알려줘"),
-        ("infra", "TGW 피어링",                "TGW 피어링 연결 상태를 확인해줘"),
-        ("infra", "VPN 연결",                  "VPN 연결 상태를 확인해줘"),
-        # EKS / EKS
-        ("infra", "EKS 클러스터",              "EKS 클러스터 상태와 노드 현황을 확인해줘"),
-        ("infra", "EKS 로그",                  "EKS 클러스터의 CloudWatch 로그를 확인해줘"),
-        ("infra", "EKS 네트워크",              "EKS 클러스터의 VPC 설정과 서브넷 구성을 알려줘"),
-        ("infra", "EKS 트러블슈팅",            "EKS Pod가 Pending 상태일 때 원인을 분석해줘"),
-        ("infra", "EKS 메트릭",               "EKS 노드의 CPU와 메모리 사용률을 확인해줘"),
-        # ECS / ECS
-        ("infra", "ECS 서비스",                "ECS 클러스터와 서비스 현황을 보여줘"),
-        ("infra", "ECS 태스크",                "ECS 태스크 정의 목록을 확인해줘"),
-        ("infra", "ECS 트러블슈팅",            "ECS 서비스가 DRAINING 상태인 원인을 분석해줘"),
-        # Istio / Istio
-        ("infra", "Istio 현황",               "Istio 서비스 메시 전체 현황을 보여줘"),
-        ("infra", "Istio VirtualService",     "Istio VirtualService 목록을 조회해줘"),
+        ("network", "VPC 현황",                "VPC 현황과 서브넷 구성을 알려줘"),
+        ("network", "보안그룹",                 "보안그룹 규칙을 확인해줘"),
+        ("network", "네트워크 토폴로지",         "전체 네트워크 구성을 설명해줘"),
+        ("network", "라우트 테이블",            "VPC 라우트 테이블을 조회해줘"),
+        ("network", "NAT Gateway",            "NAT Gateway 상태와 사용량을 확인해줘"),
+        ("network", "ENI 조회",                "10.0.0.1 IP를 사용하는 ENI를 찾아줘"),
+        # Transit Gateway
+        ("network", "TGW 현황",                "Transit Gateway 현황과 라우팅을 알려줘"),
+        ("network", "TGW 피어링",              "TGW 피어링 연결 상태를 확인해줘"),
+        ("network", "VPN 연결",                "VPN 연결 상태를 확인해줘"),
+    ]),
+
+    ("container", [
+        # EKS
+        ("container", "EKS 클러스터",           "EKS 클러스터 상태와 노드 현황을 확인해줘"),
+        ("container", "EKS 로그",              "EKS 클러스터의 CloudWatch 로그를 확인해줘"),
+        ("container", "EKS 네트워크",           "EKS 클러스터의 VPC 설정과 서브넷 구성을 알려줘"),
+        ("container", "EKS 트러블슈팅",         "EKS Pod가 Pending 상태일 때 원인을 분석해줘"),
+        ("container", "EKS 메트릭",            "EKS 노드의 CPU와 메모리 사용률을 확인해줘"),
+        # ECS
+        ("container", "ECS 서비스",            "ECS 클러스터와 서비스 현황을 보여줘"),
+        ("container", "ECS 태스크",            "ECS 태스크 정의 목록을 확인해줘"),
+        ("container", "ECS 트러블슈팅",         "ECS 서비스가 DRAINING 상태인 원인을 분석해줘"),
+        # Istio
+        ("container", "Istio 현황",            "Istio 서비스 메시 전체 현황을 보여줘"),
+        ("container", "Istio VirtualService",  "Istio VirtualService 목록을 조회해줘"),
     ]),
 
     ("cost", [
@@ -294,7 +297,8 @@ def show_menu():
 
     cat_descriptions = {
         "security":   "IAM 보안 점검, 사용자/역할/정책 분석",
-        "infra":      "VPC, EKS, ECS, TGW, 네트워크 진단",
+        "network":    "VPC, TGW, VPN, ENI, Firewall, Flow Logs",
+        "container":  "EKS, ECS, Istio 서비스 메시",
         "cost":       "비용 분석, 비교, 예측, FinOps",
         "monitoring": "CloudWatch 알람/메트릭, CloudTrail 감사",
         "data":       "DynamoDB, RDS, ElastiCache, MSK",

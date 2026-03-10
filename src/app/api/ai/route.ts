@@ -55,10 +55,10 @@ const ROUTE_REGISTRY: Record<string, RouteConfig> = {
     examples: ['"코드 실행해줘" → code', '"이 데이터를 파이썬으로 분석" → code'],
     handler: 'code',
   },
-  infra: {
-    gateway: 'infra',
-    display: 'Infra Gateway (41 tools)',
-    description: 'AWS networking, containers, and service mesh',
+  network: {
+    gateway: 'network',
+    display: 'Network Gateway (17 tools)',
+    description: 'AWS VPC networking, Transit Gateway, VPN, and traffic analysis',
     tools: [
       'VPC/Subnet/ENI/Security Group 조회 및 분석',
       'Transit Gateway(TGW) 목록/상세/라우트/피어링',
@@ -66,14 +66,27 @@ const ROUTE_REGISTRY: Record<string, RouteConfig> = {
       'NAT Gateway, Internet Gateway, Route Table',
       'Reachability Analyzer (네트워크 경로 분석, 연결 확인)',
       'VPC Flow Logs 조회 및 트래픽 분석',
+    ],
+    examples: [
+      '"TGW 현황" → network', '"VPN 연결 확인" → network',
+      '"EC2 간 통신 가능한지 확인" → network', '"보안그룹 규칙 확인" → network',
+      '"플로우 로그 조회" → network', '"VPC 현황" → network',
+      '"서브넷 구성" → network', '"라우트 테이블" → network',
+    ],
+  },
+  container: {
+    gateway: 'container',
+    display: 'Container Gateway (24 tools)',
+    description: 'EKS, ECS, and Istio service mesh',
+    tools: [
       'EKS 클러스터/노드/Pod/로그/메트릭/IAM/트러블슈팅',
       'ECS 클러스터/서비스/태스크/ECR/Fargate 트러블슈팅',
       'Istio VirtualService/DestinationRule/Gateway/mTLS/EnvoyFilter',
     ],
     examples: [
-      '"TGW 현황" → infra', '"VPN 연결 확인" → infra',
-      '"EC2 간 통신 가능한지 확인" → infra', '"EKS 클러스터 상태" → infra',
-      '"보안그룹 규칙 확인" → infra', '"플로우 로그 조회" → infra',
+      '"EKS 클러스터 상태" → container', '"ECS 서비스 현황" → container',
+      '"Istio 현황" → container', '"Pod 상태 확인" → container',
+      '"컨테이너 로그" → container', '"EKS 노드 메트릭" → container',
     ],
   },
   iac: {

@@ -19,8 +19,10 @@ logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[l
 app = BedrockAgentCoreApp()
 
 # Gateway URLs by role / 역할별 게이트웨이 URL
+# 8 Gateways: network, container, iac, data, security, monitoring, cost, ops
 GATEWAYS = {
-    "infra": "https://awsops-infra-gateway-nipql9oohq.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "network": "https://awsops-network-gateway-PLACEHOLDER.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
+    "container": "https://awsops-container-gateway-PLACEHOLDER.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "ops": "https://awsops-ops-gateway-ybcvjkwu71.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "iac": "https://awsops-iac-gateway-i0vlfltmwu.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
     "cost": "https://awsops-cost-gateway-uanqtckgzm.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
@@ -46,7 +48,7 @@ model = BedrockModel(
 # ============================================================================
 SKILL_BASE = {
 
-    "infra": """You are AWSops Infrastructure Specialist. Diagnose and explain AWS networking, containers, and service mesh.
+    "network": """You are AWSops Network Specialist. Diagnose and explain AWS VPC networking, connectivity, and traffic.
 
 ## Decision Patterns — Match user question to tool chain:
 | User asks about... | Tool chain |
@@ -61,6 +63,21 @@ SKILL_BASE = {
 | ENI 문제 | get_eni_details |
 | VPN 상태 | list_vpn_connections |
 | Network Firewall 규칙 | list_network_firewalls → get_firewall_rules |
+
+## Troubleshooting Workflows:
+- Connectivity: analyze_reachability → describe_network (SG/NACL) → query_flow_logs
+- TGW routing: list_transit_gateways → get_tgw_routes → get_all_tgw_routes (compare)
+
+## Rules:
+- ALWAYS call tools for real-time data — never answer from memory
+- For connectivity: always use the 3-step pattern (reachability → SG → flow logs)""",
+
+
+    "container": """You are AWSops Container Specialist. Manage and troubleshoot EKS, ECS, and Istio service mesh.
+
+## Decision Patterns — Match user question to tool chain:
+| User asks about... | Tool chain |
+|---|---|
 | EKS 클러스터 상태/현황 | list_eks_clusters → get_eks_insights |
 | EKS 네트워크 설정 | get_eks_vpc_config |
 | EKS 로그/메트릭 | get_cloudwatch_logs / get_cloudwatch_metrics |
@@ -75,15 +92,12 @@ SKILL_BASE = {
 | Istio sidecar 문제 | check_sidecar_injection |
 
 ## Troubleshooting Workflows:
-- Connectivity: analyze_reachability → describe_network (SG/NACL) → query_flow_logs
-- TGW routing: list_transit_gateways → get_tgw_routes → get_all_tgw_routes (compare)
 - EKS issues: list_eks_clusters → get_eks_insights → get_cloudwatch_logs → search_eks_troubleshoot_guide
 - ECS failures: ecs_resource_management → ecs_troubleshooting_tool
 - Istio 503: istio_overview → list_virtual_services → istio_troubleshooting
 
 ## Rules:
-- ALWAYS call tools for real-time data — never answer from memory
-- For connectivity: always use the 3-step pattern (reachability → SG → flow logs)""",
+- ALWAYS call tools for real-time data — never answer from memory""",
 
 
     "ops": """You are AWSops Operations Assistant. Query AWS resources and provide operational guidance.

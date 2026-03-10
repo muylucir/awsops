@@ -2,16 +2,17 @@
 set -e
 ################################################################################
 #                                                                              #
-#   Step 6b: AgentCore Gateways Setup (7 role-based Gateways)                  #
+#   Step 6b: AgentCore Gateways Setup (8 role-based Gateways)                  #
 #                                                                              #
 #   Creates:                                                                   #
-#     1. Infra Gateway      (network, EKS, ECS, Istio)                         #
-#     2. IaC Gateway        (CloudFormation, CDK, Terraform)                   #
-#     3. Data Gateway       (DynamoDB, RDS, ElastiCache, MSK)                  #
-#     4. Security Gateway   (IAM)                                              #
-#     5. Monitoring Gateway (CloudWatch, CloudTrail)                           #
-#     6. Cost Gateway       (Cost Explorer, Pricing, Budgets)                  #
-#     7. Ops Gateway        (Steampipe, AWS Knowledge, Core MCP)               #
+#     1. Network Gateway    (VPC, TGW, VPN, ENI, Firewall, Flow Logs)         #
+#     2. Container Gateway  (EKS, ECS, Istio)                                 #
+#     3. IaC Gateway        (CloudFormation, CDK, Terraform)                   #
+#     4. Data Gateway       (DynamoDB, RDS, ElastiCache, MSK)                  #
+#     5. Security Gateway   (IAM)                                              #
+#     6. Monitoring Gateway (CloudWatch, CloudTrail)                           #
+#     7. Cost Gateway       (Cost Explorer, Pricing, Budgets)                  #
+#     8. Ops Gateway        (Steampipe, AWS Knowledge, Core MCP)               #
 #                                                                              #
 ################################################################################
 
@@ -23,7 +24,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/nu
 
 echo ""
 echo -e "${CYAN}=================================================================${NC}"
-echo -e "${CYAN}   Step 6b: AgentCore Gateways Setup (7 Gateways)${NC}"
+echo -e "${CYAN}   Step 6b: AgentCore Gateways Setup (8 Gateways)${NC}"
 echo -e "${CYAN}=================================================================${NC}"
 echo ""
 echo "  Region:  $REGION"
@@ -39,10 +40,11 @@ if [ -z "$ROLE_ARN" ] || [ "$ROLE_ARN" = "None" ]; then
 fi
 
 # -- Create 7 Gateways --------------------------------------------------------
-echo -e "${CYAN}[1/1] Creating 7 role-based Gateways...${NC}"
+echo -e "${CYAN}[1/1] Creating 8 role-based Gateways...${NC}"
 
 GATEWAYS=(
-    "awsops-infra-gateway:Infra - Network, EKS, ECS, Istio"
+    "awsops-network-gateway:Network - VPC, TGW, VPN, ENI, Firewall, Reachability, Flow Logs"
+    "awsops-container-gateway:Container - EKS, ECS, Istio service mesh"
     "awsops-iac-gateway:IaC - CloudFormation, CDK, Terraform"
     "awsops-data-gateway:Data - DynamoDB, RDS MySQL/PostgreSQL, ElastiCache, MSK"
     "awsops-security-gateway:Security - IAM users, roles, policies, simulation"
@@ -72,7 +74,7 @@ done
 # -- Summary -------------------------------------------------------------------
 echo ""
 echo -e "${GREEN}=================================================================${NC}"
-echo -e "${GREEN}   Step 6b Complete: 7 Gateways created${NC}"
+echo -e "${GREEN}   Step 6b Complete: 8 Gateways created${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo ""
 
