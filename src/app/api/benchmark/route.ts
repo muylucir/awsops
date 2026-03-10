@@ -5,7 +5,24 @@ import { join } from 'path';
 
 const RESULTS_DIR = '/tmp/powerpipe-results';
 const MOD_DIR = '/home/ec2-user/awsops/powerpipe';
-const DB_URL = 'postgres://steampipe:6bbf_4c5e_89bb@127.0.0.1:9193/steampipe';
+
+// Dynamically get Steampipe password (avoid hardcoded mismatch across deployments)
+// Steampipe 비밀번호를 동적으로 가져옴 (배포 환경별 불일치 방지)
+let cachedDbUrl: string | null = null;
+function getDbUrl(): string {
+  if (cachedDbUrl) return cachedDbUrl;
+  try {
+    const output = execSync('steampipe service status --show-password 2>/dev/null', { encoding: 'utf-8' });
+    const match = output.match(/postgres:\/\/steampipe:[^@]+@127\.0\.0\.1:9193\/steampipe/);
+    if (match) {
+      cachedDbUrl = match[0];
+      return cachedDbUrl;
+    }
+  } catch {}
+  // Fallback: use default connection string / 폴백: 기본 연결 문자열
+  cachedDbUrl = 'postgres://steampipe:steampipe@127.0.0.1:9193/steampipe';
+  return cachedDbUrl;
+}
 
 function ensureDir() {
   try { execSync(`mkdir -p ${RESULTS_DIR}`); } catch {}
@@ -31,7 +48,8 @@ export async function GET(request: NextRequest) {
 
     writeFileSync(statusFile, 'running', 'utf-8');
 
-    const cmd = `powerpipe benchmark run aws_compliance.benchmark.${benchmark} --database "${DB_URL}" --mod-location "${MOD_DIR}" --output json --progress=false > "${resultFile}" 2>/dev/null && echo "done" > "${statusFile}" || echo "error" > "${statusFile}"`;
+    const dbUrl = getDbUrl();
+    const cmd = `powerpipe benchmark run aws_compliance.benchmark.${benchmark} --database "${dbUrl}" --mod-location "${MOD_DIR}" --output json --progress=false > "${resultFile}" 2>/dev/null && echo "done" > "${statusFile}" || echo "error" > "${statusFile}"`;
     exec(cmd);
 
     return NextResponse.json({ status: 'started', message: 'Benchmark started' });

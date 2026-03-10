@@ -27,17 +27,46 @@ echo -e "${CYAN}   Step 7: CloudFront Lambda@Edge Authentication${NC}"
 echo -e "${CYAN}=================================================================${NC}"
 echo ""
 
-# -- [1/4] Auto-detect CloudFront distribution --------------------------------
+# -- [1/4] Auto-detect CloudFront distribution / CloudFront 자동 감지 ----------
 echo -e "${CYAN}[1/4] Auto-detecting CloudFront distribution...${NC}"
 
 if [ -z "$CF_DOMAIN" ]; then
-    CF_DOMAIN=$(aws cloudfront list-distributions \
-        --query "DistributionList.Items[?contains(Origins.Items[].DomainName, 'elb.amazonaws.com')].DomainName | [0]" \
-        --output text --region us-east-1 2>/dev/null || echo "")
-    if [ -n "$CF_DOMAIN" ] && [ "$CF_DOMAIN" != "None" ]; then
-        echo "  Auto-detected CloudFront: $CF_DOMAIN"
-    else
+    # Method 1: Find from CDK CloudFormation stack / CDK 스택에서 검색
+    CF_STACK_NAME=$(aws cloudformation list-stacks \
+        --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
+        --query "StackSummaries[?contains(StackName, 'AwsopsStack') || contains(StackName, 'awsops')].StackName | [0]" \
+        --output text --region "$REGION" 2>/dev/null || echo "None")
+
+    if [ -n "$CF_STACK_NAME" ] && [ "$CF_STACK_NAME" != "None" ]; then
+        echo "  Found CDK stack: $CF_STACK_NAME"
+        # Search CF distribution ID from stack resources / 스택 리소스에서 CF Distribution 검색
+        CF_DIST_ID=$(aws cloudformation list-stack-resources \
+            --stack-name "$CF_STACK_NAME" \
+            --query "StackResourceSummaries[?ResourceType=='AWS::CloudFront::Distribution'].PhysicalResourceId | [0]" \
+            --output text --region "$REGION" 2>/dev/null || echo "None")
+        if [ -n "$CF_DIST_ID" ] && [ "$CF_DIST_ID" != "None" ]; then
+            CF_DOMAIN=$(aws cloudfront get-distribution --id "$CF_DIST_ID" \
+                --query "Distribution.DomainName" --output text --region us-east-1 2>/dev/null || echo "")
+            if [ -n "$CF_DOMAIN" ] && [ "$CF_DOMAIN" != "None" ]; then
+                echo "  Auto-detected from CDK stack: $CF_DOMAIN"
+            fi
+        fi
+    fi
+
+    # Method 2: Fallback — search by ALB origin / ALB origin으로 검색
+    if [ -z "$CF_DOMAIN" ] || [ "$CF_DOMAIN" = "None" ]; then
+        CF_DOMAIN=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Origins.Items[].DomainName, 'elb.amazonaws.com')].DomainName | [0]" \
+            --output text --region us-east-1 2>/dev/null || echo "")
+        if [ -n "$CF_DOMAIN" ] && [ "$CF_DOMAIN" != "None" ]; then
+            echo "  Auto-detected from ALB origin: $CF_DOMAIN"
+        fi
+    fi
+
+    # All methods failed / 모든 감지 실패
+    if [ -z "$CF_DOMAIN" ] || [ "$CF_DOMAIN" = "None" ]; then
         echo -e "${RED}ERROR: CF_DOMAIN not set and could not auto-detect.${NC}"
+        echo -e "  ${YELLOW}Tried: CDK stack (AwsopsStack), ALB origin${NC}"
         echo "  export CF_DOMAIN='dXXXXXXXXXX.cloudfront.net'"
         exit 1
     fi
