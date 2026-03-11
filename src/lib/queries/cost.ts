@@ -1,4 +1,16 @@
 export const queries = {
+  // Dashboard summary: total cost for current month / 대시보드 요약: 이번 달 총 비용
+  summary: `
+    SELECT
+      ROUND(CAST(SUM(unblended_cost_amount) AS numeric), 2) AS total_cost,
+      MIN(period_start) AS period_start,
+      MAX(period_end) AS period_end
+    FROM
+      aws_cost_by_service_monthly
+    WHERE
+      period_start >= date_trunc('month', CURRENT_DATE)
+  `,
+
   monthlyCost: `
     SELECT
       period_start,

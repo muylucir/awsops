@@ -54,7 +54,7 @@ export default function DashboardPage() {
             cwSummary: cwQ.summary,
             ecsSummary: ecsQ.summary,
             dynamoSummary: dynamoQ.summary,
-            costMonthly: costQ.monthlyCost,
+            costSummary: costQ.summary,
             k8sNodes: k8sQ.nodeSummary,
             k8sPods: k8sQ.podSummary,
             k8sDeploy: k8sQ.deploymentSummary,
@@ -90,7 +90,7 @@ export default function DashboardPage() {
   const cw = getFirst('cwSummary') as Record<string, unknown>;
   const ecs = getFirst('ecsSummary') as Record<string, unknown>;
   const dynamo = getFirst('dynamoSummary') as Record<string, unknown>;
-  const cost = getFirst('costMonthly') as Record<string, unknown>;
+  const cost = getFirst('costSummary') as Record<string, unknown>;
   const k8sNodes = getFirst('k8sNodes') as Record<string, unknown>;
   const k8sDeploy = getFirst('k8sDeploy') as Record<string, unknown>;
   const sec = getFirst('secSummary') as Record<string, unknown>;
