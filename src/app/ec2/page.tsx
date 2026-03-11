@@ -61,8 +61,8 @@ export default function EC2Page() {
   const getFirst = (key: string) => get(key)[0] || {};
 
   const summary = getFirst('summary') as Record<string, unknown>;
-  const statusData = get('statusCount') as { name: string; value: number }[];
-  const typeData = get('typeDistribution') as { name: string; value: number }[];
+  const statusData = get('statusCount').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 }));
+  const typeData = get('typeDistribution').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 }));
   const list = get('list');
 
   const running = Number(summary?.running_instances) || 0;
