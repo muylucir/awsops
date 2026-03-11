@@ -83,10 +83,10 @@ export const queries = {
   instanceTypeSpec: `
     SELECT
       instance_type,
-      memory_info_size_in_mib AS memory_mib,
-      v_cpu_info_default_v_cpus AS vcpus,
-      network_info_maximum_network_interfaces AS max_enis,
-      network_info_network_performance AS network_performance,
+      (memory_info ->> 'SizeInMiB')::int AS memory_mib,
+      (v_cpu_info ->> 'DefaultVCpus')::int AS vcpus,
+      (network_info ->> 'MaximumNetworkInterfaces')::int AS max_enis,
+      network_info ->> 'NetworkPerformance' AS network_performance,
       instance_storage_supported
     FROM
       aws_ec2_instance_type
