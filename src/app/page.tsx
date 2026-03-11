@@ -157,7 +157,7 @@ export default function DashboardPage() {
               title={totalIssues > 0 ? `⚠ ${details} — Click to view details` : '✓ No security issues detected'}
             >
               <StatsCard label="Security Issues" value={totalIssues} icon={ShieldCheck}
-                color={totalIssues > 0 ? 'red' : 'green'}
+                color={totalIssues > 0 ? 'red' : 'green'} highlight
                 change={totalIssues > 0 ? details : '✓ All clear'} />
             </div>
           );
@@ -256,12 +256,12 @@ export default function DashboardPage() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <PieChartCard title="EC2 Instance Types" data={(get('ec2Types') as { name: string; value: number }[]).slice(0, 8)} />
+        <PieChartCard title="EC2 Instance Types" data={get('ec2Types').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 })).slice(0, 8)} />
         <BarChartCard title="Resource Distribution" data={resourceCounts} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <PieChartCard title="RDS Engine Distribution" data={get('rdsEngines') as { name: string; value: number }[]} />
+        <PieChartCard title="RDS Engine Distribution" data={get('rdsEngines').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 }))} />
         <PieChartCard title="K8s Pod Status" data={[
           { name: 'Running', value: Number(podSum?.running_pods) || 0 },
           { name: 'Pending', value: Number(podSum?.pending_pods) || 0 },

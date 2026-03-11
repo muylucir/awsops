@@ -6,6 +6,7 @@ interface StatsCardProps {
   icon: LucideIcon;
   color: string;
   change?: string;
+  highlight?: boolean; // Apply color to value text / 값 텍스트에 색상 적용
 }
 
 const colorMap: Record<string, { bg: string; text: string }> = {
@@ -17,7 +18,7 @@ const colorMap: Record<string, { bg: string; text: string }> = {
   pink: { bg: 'bg-accent-pink/10', text: 'text-accent-pink' },
 };
 
-export default function StatsCard({ label, value, icon: Icon, color, change }: StatsCardProps) {
+export default function StatsCard({ label, value, icon: Icon, color, change, highlight }: StatsCardProps) {
   const colors = colorMap[color] ?? colorMap.cyan;
 
   return (
@@ -29,7 +30,7 @@ export default function StatsCard({ label, value, icon: Icon, color, change }: S
 
       {/* Content */}
       <p className="text-sm text-gray-400 mb-1">{label}</p>
-      <p className="text-3xl font-bold text-white font-mono">{value}</p>
+      <p className={`text-3xl font-bold font-mono ${highlight ? colors.text : 'text-white'}`}>{value}</p>
 
       {change && (
         <p
