@@ -63,8 +63,8 @@ export default function SecurityPage() {
   const mfaIssues = Number(summary?.mfa_not_enabled) || 0;
   const openSGCount = Number(summary?.open_sgs) || 0;
   const unencryptedCount = Number(summary?.unencrypted_volumes) || 0;
-  const criticalCVE = trivySummary.find(s => s.name === 'CRITICAL')?.value || 0;
-  const highCVE = trivySummary.find(s => s.name === 'HIGH')?.value || 0;
+  const criticalCVE = trivySummary.find((s: any) => s.name === 'CRITICAL')?.value || 0;
+  const highCVE = trivySummary.find((s: any) => s.name === 'HIGH')?.value || 0;
 
   const severityColors: Record<string, string> = { CRITICAL: '#ef4444', HIGH: '#f59e0b', MEDIUM: '#a855f7', LOW: '#00d4ff', UNKNOWN: '#6b7280' };
   const cvePieData = trivySummary.map(s => ({ name: s.name, value: s.value, color: severityColors[s.name] || '#6b7280' }));
