@@ -20,6 +20,7 @@ export default function VPCPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [tgwRouteTables, setTgwRouteTables] = useState<any[]>([]);
   const [tgwRoutes, setTgwRoutes] = useState<Record<string, any[]>>({});
+  const [vpcMap, setVpcMap] = useState<{ subnets: any[]; routeTables: any[] } | null>(null);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -60,6 +61,29 @@ export default function VPCPage() {
       });
       const result = await res.json();
       if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
+    } catch {} finally { setDetailLoading(false); }
+  };
+
+  // Fetch VPC detail with resource map / VPC 상세 + 리소스 맵
+  const fetchVpcDetail = async (vpcId: string) => {
+    setDetailLoading(true);
+    setDetailType('vpc');
+    setVpcMap(null);
+    try {
+      const detailSql = vpcQ.vpcDetail.replace('{vpc_id}', vpcId);
+      const subnetSql = vpcQ.vpcSubnets.replace('{vpc_id}', vpcId);
+      const rtSql = vpcQ.vpcRouteTables.replace('{vpc_id}', vpcId);
+      const res = await fetch('/awsops/api/steampipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queries: { detail: detailSql, subnets: subnetSql, routeTables: rtSql } }),
+      });
+      const result = await res.json();
+      if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
+      setVpcMap({
+        subnets: result.subnets?.rows || [],
+        routeTables: result.routeTables?.rows || [],
+      });
     } catch {} finally { setDetailLoading(false); }
   };
 
@@ -184,7 +208,7 @@ export default function VPCPage() {
           { key: 'is_default', label: 'Default', render: (v: boolean) => v ? 'Yes' : 'No' },
           { key: 'region', label: 'Region' },
         ]} data={loading && !vpcs.length ? undefined : vpcs}
-           onRowClick={(row) => fetchDetail('vpc', vpcQ.vpcDetail, '{vpc_id}', row.vpc_id)} />
+           onRowClick={(row) => fetchVpcDetail(row.vpc_id)} />
       )}
 
       {/* Subnets */}
@@ -329,9 +353,111 @@ export default function VPCPage() {
                     <Row label="DHCP Options" value={selected.dhcp_options_id} />
                     <Row label="Tenancy" value={selected.instance_tenancy} />
                     <Row label="Owner" value={selected.owner_id} />
-                    <Row label="ARN" value={selected.arn} />
                     <Row label="Region" value={selected.region} />
                   </Section>
+
+                  {/* VPC Resource Map / VPC 리소스 맵 트리뷰 */}
+                  {vpcMap && (
+                    <Section title="Resource Map" icon={ArrowRightLeft}>
+                      {(() => {
+                        // Build subnet → route table mapping / 서브넷 → 라우트 테이블 매핑
+                        const rtMap: Record<string, { rt: any; routes: any[] }> = {};
+                        const subnetToRt: Record<string, string> = {};
+                        let mainRtId = '';
+
+                        vpcMap.routeTables.forEach((rt: any) => {
+                          const assocs = parseArray(rt.associations);
+                          const routes = parseArray(rt.routes);
+                          rtMap[rt.route_table_id] = { rt, routes };
+                          assocs.forEach((a: any) => {
+                            if (a.Main || a.main) mainRtId = rt.route_table_id;
+                            const subId = a.SubnetId || a.subnet_id;
+                            if (subId) subnetToRt[subId] = rt.route_table_id;
+                          });
+                        });
+
+                        // Group subnets by AZ / AZ별 서브넷 그룹
+                        const azGroups: Record<string, any[]> = {};
+                        vpcMap.subnets.forEach((s: any) => {
+                          const az = s.availability_zone || 'unknown';
+                          if (!azGroups[az]) azGroups[az] = [];
+                          azGroups[az].push(s);
+                        });
+
+                        const getTarget = (r: any) => {
+                          if (r.GatewayId === 'local' || r.gateway_id === 'local') return { type: 'local', id: 'local', color: 'text-gray-500' };
+                          if (r.GatewayId?.startsWith('igw') || r.gateway_id?.startsWith('igw')) return { type: 'IGW', id: r.GatewayId || r.gateway_id, color: 'text-accent-green' };
+                          if (r.NatGatewayId || r.nat_gateway_id) return { type: 'NAT', id: r.NatGatewayId || r.nat_gateway_id, color: 'text-accent-orange' };
+                          if (r.TransitGatewayId || r.transit_gateway_id) return { type: 'TGW', id: r.TransitGatewayId || r.transit_gateway_id, color: 'text-accent-purple' };
+                          if (r.VpcPeeringConnectionId || r.vpc_peering_connection_id) return { type: 'Peering', id: r.VpcPeeringConnectionId || r.vpc_peering_connection_id, color: 'text-accent-cyan' };
+                          if (r.NetworkInterfaceId || r.network_interface_id) return { type: 'ENI', id: r.NetworkInterfaceId || r.network_interface_id, color: 'text-gray-400' };
+                          return { type: '?', id: '', color: 'text-gray-600' };
+                        };
+
+                        return (
+                          <div className="space-y-1">
+                            {/* VPC root / VPC 루트 */}
+                            <div className="text-sm font-bold text-white">
+                              🏗 {selected.vpc_id} <span className="text-accent-cyan font-normal">{selected.cidr_block}</span>
+                            </div>
+
+                            {Object.entries(azGroups).sort().map(([az, azSubnets]) => (
+                              <div key={az} className="ml-4">
+                                <div className="text-xs text-gray-500 font-mono mt-2 mb-1">📍 {az}</div>
+                                {azSubnets.map((subnet: any) => {
+                                  const rtId = subnetToRt[subnet.subnet_id] || mainRtId;
+                                  const rtData = rtMap[rtId];
+                                  const isPublic = subnet.map_public_ip_on_launch;
+                                  return (
+                                    <div key={subnet.subnet_id} className="ml-4 mb-2">
+                                      {/* Subnet / 서브넷 */}
+                                      <div className="text-xs font-mono flex items-center gap-2">
+                                        <span className={isPublic ? 'text-accent-green' : 'text-accent-cyan'}>
+                                          {isPublic ? '🌐' : '🔒'} {subnet.name || subnet.subnet_id}
+                                        </span>
+                                        <span className="text-gray-500">{subnet.cidr_block}</span>
+                                        <span className="text-gray-600">({subnet.available_ip_address_count} free)</span>
+                                      </div>
+                                      {/* Route Table / 라우트 테이블 */}
+                                      {rtData && (
+                                        <div className="ml-4 mt-0.5">
+                                          <div className="text-[10px] text-gray-500 font-mono">
+                                            📋 {rtData.rt.name || rtId} {rtId === mainRtId && <span className="text-accent-orange">(main)</span>}
+                                          </div>
+                                          <div className="ml-4 space-y-0.5">
+                                            {rtData.routes.filter((r: any) => {
+                                              const t = getTarget(r);
+                                              return t.type !== 'local';
+                                            }).map((r: any, i: number) => {
+                                              const dest = r.DestinationCidrBlock || r.destination_cidr_block || r.DestinationPrefixListId || r.destination_prefix_list_id || '--';
+                                              const t = getTarget(r);
+                                              const state = r.State || r.state || '';
+                                              return (
+                                                <div key={i} className="text-[10px] font-mono flex items-center gap-1">
+                                                  <span className="text-gray-600">{dest}</span>
+                                                  <span className="text-gray-700">→</span>
+                                                  <span className={t.color}>{t.type} {t.id?.slice(-8)}</span>
+                                                  {state === 'blackhole' && <span className="text-accent-red">(blackhole)</span>}
+                                                </div>
+                                              );
+                                            })}
+                                            {/* Local route / 로컬 라우트 */}
+                                            <div className="text-[10px] font-mono text-gray-600">
+                                              {selected.cidr_block} → local
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </Section>
+                  )}
                 </>)}
 
                 {/* Subnet Detail */}

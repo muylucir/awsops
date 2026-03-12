@@ -149,6 +149,28 @@ export const queries = {
     WHERE transit_gateway_attachment_id = '{att_id}'
   `,
 
+  // VPC Resource Map: subnets + route tables + routes for a VPC / VPC 리소스 맵
+  vpcSubnets: `
+    SELECT
+      subnet_id, cidr_block, availability_zone,
+      available_ip_address_count, map_public_ip_on_launch,
+      tags ->> 'Name' AS name
+    FROM aws_vpc_subnet
+    WHERE vpc_id = '{vpc_id}'
+    ORDER BY availability_zone, cidr_block
+  `,
+
+  vpcRouteTables: `
+    SELECT
+      route_table_id,
+      associations::text AS associations,
+      routes::text AS routes,
+      tags ->> 'Name' AS name
+    FROM aws_vpc_route_table
+    WHERE vpc_id = '{vpc_id}'
+    ORDER BY route_table_id
+  `,
+
   routeTableList: `
     SELECT
       route_table_id, vpc_id, owner_id, region,
