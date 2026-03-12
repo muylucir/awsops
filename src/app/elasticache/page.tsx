@@ -7,7 +7,8 @@ import StatusBadge from '@/components/dashboard/StatusBadge';
 import PieChartCard from '@/components/charts/PieChartCard';
 import BarChartCard from '@/components/charts/BarChartCard';
 import DataTable from '@/components/table/DataTable';
-import { Database, X, Network, Shield, Settings, Tag } from 'lucide-react';
+import { Database, X, Network, Shield, Settings, Tag, Activity, Search } from 'lucide-react';
+import LineChartCard from '@/components/charts/LineChartCard';
 import { queries as ecQ } from '@/lib/queries/elasticache';
 
 export default function ElastiCachePage() {
@@ -15,6 +16,9 @@ export default function ElastiCachePage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [sgDetails, setSgDetails] = useState<any[]>([]);
+  const [ecMetrics, setEcMetrics] = useState<Record<string, any[]>>({});
+  const [searchText, setSearchText] = useState('');
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -40,17 +44,47 @@ export default function ElastiCachePage() {
 
   const fetchDetail = async (id: string) => {
     setDetailLoading(true);
+    setSgDetails([]);
+    setEcMetrics({});
     try {
-      const sql = ecQ.detail.replace('{id}', id);
+      const detailSql = ecQ.detail.replace(/{id}/g, id);
+      const metricSql = ecQ.ecMetrics.replace(/{id}/g, id);
       const res = await fetch('/awsops/api/steampipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ queries: { detail: sql } }),
+        body: JSON.stringify({ queries: { detail: detailSql, metrics: metricSql } }),
       });
       const result = await res.json();
-      if (result.detail?.rows?.[0]) {
-        setSelected(result.detail.rows[0]);
+      const detail = result.detail?.rows?.[0];
+      if (detail) {
+        setSelected(detail);
+        // Fetch SG details / SG 상세 조회
+        try {
+          const sgs = JSON.parse(detail.security_groups || '[]');
+          const sgIds = sgs.map((sg: any) => sg.SecurityGroupId || sg.security_group_id).filter(Boolean);
+          if (sgIds.length > 0) {
+            const sgQueries: Record<string, string> = {};
+            sgIds.forEach((sgId: string) => { sgQueries[sgId] = ecQ.ecSgDetail.replace('{sg_id}', sgId); });
+            const sgRes = await fetch('/awsops/api/steampipe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ queries: sgQueries }),
+            });
+            const sgResult = await sgRes.json();
+            const sgList: any[] = [];
+            Object.values(sgResult).forEach((val: any) => { if (val?.rows?.[0]) sgList.push(val.rows[0]); });
+            setSgDetails(sgList);
+          }
+        } catch {}
       }
+      // Process metrics / 메트릭 처리
+      const metricRows = result.metrics?.rows || [];
+      const grouped: Record<string, any[]> = {};
+      metricRows.forEach((m: any) => {
+        if (!grouped[m.metric_name]) grouped[m.metric_name] = [];
+        grouped[m.metric_name].push(m);
+      });
+      setEcMetrics(grouped);
     } catch {} finally { setDetailLoading(false); }
   };
 
@@ -80,6 +114,17 @@ export default function ElastiCachePage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PieChartCard title="Engine Distribution" data={get('engines').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 }))} />
         <BarChartCard title="Node Type Distribution" data={get('nodeTypes').map((r: any) => ({ name: String(r.name), value: Number(r.value) || 0 }))} />
+      </div>
+
+      {/* Search / 검색 */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+          <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search cluster ID, engine..."
+            className="bg-navy-800 border border-navy-600 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 placeholder-gray-600 w-56 focus:ring-accent-cyan focus:border-accent-cyan focus:outline-none" />
+        </div>
+        {searchText && <button onClick={() => setSearchText('')} className="text-xs text-gray-500 hover:text-white">Clear</button>}
       </div>
 
       <div>
@@ -187,6 +232,77 @@ export default function ElastiCachePage() {
                   <Row label="Snapshot Window" value={selected.snapshot_window} />
                   <Row label="Maintenance Window" value={selected.preferred_maintenance_window} />
                 </Section>
+
+                {/* Security Groups / SG */}
+                <Section title="Security Groups" icon={Shield}>
+                  {sgDetails.length > 0 ? (
+                    <div className="space-y-3">
+                      {sgDetails.map((sg: any) => {
+                        const rules = (() => { try { return JSON.parse(sg.inbound_rules || '[]'); } catch { return []; } })();
+                        return (
+                          <div key={sg.group_id} className="bg-navy-800 rounded p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-accent-cyan font-mono text-xs">{sg.group_id}</span>
+                              <span className="text-gray-400 text-xs">{sg.group_name}</span>
+                            </div>
+                            {rules.length > 0 ? (
+                              <div className="space-y-1">
+                                {rules.map((r: any, i: number) => (
+                                  <div key={i} className="text-[10px] font-mono flex flex-wrap gap-2 pl-2 border-l border-navy-600">
+                                    <span className="text-accent-cyan">{r.IpProtocol === '-1' ? 'All' : r.IpProtocol?.toUpperCase()}</span>
+                                    {r.FromPort !== undefined && <span className="text-gray-400">{r.FromPort === r.ToPort ? r.FromPort : `${r.FromPort}-${r.ToPort}`}</span>}
+                                    {(r.IpRanges || []).map((ip: any, j: number) => <span key={j} className="text-gray-300">{ip.CidrIp}</span>)}
+                                    {(r.UserIdGroupPairs || []).map((g: any, j: number) => <span key={`g${j}`} className="text-accent-purple">{g.GroupId}</span>)}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-gray-600 text-xs">No inbound rules</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="text-gray-500 text-sm">{detailLoading ? 'Loading...' : 'No security groups'}</p>}
+                </Section>
+
+                {/* CloudWatch Metrics / CloudWatch 메트릭 */}
+                {Object.keys(ecMetrics).length > 0 && (
+                  <Section title="Metrics (Last 1h)" icon={Activity}>
+                    <div className="space-y-3">
+                      {Object.entries(ecMetrics).map(([name, points]) => {
+                        const sorted = [...points].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                        const latest = points[0];
+                        const chartData = sorted.map(p => ({
+                          name: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          value: Math.round((Number(p.average) || 0) * 100) / 100,
+                        }));
+                        const formatVal = (v: number) => {
+                          if (name === 'FreeableMemory') return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+                          if (name === 'NetworkBytesIn' || name === 'NetworkBytesOut') return `${(v / 1024).toFixed(1)} KB`;
+                          if (name === 'CPUUtilization' || name === 'CacheHitRate') return `${v.toFixed(1)}%`;
+                          return v.toFixed(0);
+                        };
+                        const color = name === 'CPUUtilization' ? '#ef4444' : name === 'CacheHitRate' ? '#00ff88' : '#00d4ff';
+                        return (
+                          <div key={name} className="bg-navy-800 rounded p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-mono text-accent-cyan">{name}</span>
+                              <span className="text-xs font-mono text-white">{formatVal(Number(latest?.average) || 0)}</span>
+                            </div>
+                            {chartData.length > 2 ? (
+                              <div className="h-16"><LineChartCard title="" data={chartData} color={color} /></div>
+                            ) : (
+                              <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+                                <div><span className="text-gray-500">Avg:</span> <span className="text-white">{formatVal(Number(latest?.average) || 0)}</span></div>
+                                <div><span className="text-gray-500">Max:</span> <span className="text-white">{formatVal(Number(latest?.maximum) || 0)}</span></div>
+                                <div><span className="text-gray-500">Min:</span> <span className="text-white">{formatVal(Number(latest?.minimum) || 0)}</span></div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Section>
+                )}
 
                 <Section title="Tags" icon={Tag}>
                   {Object.keys(parseTags(selected.tags)).length > 0 ? (

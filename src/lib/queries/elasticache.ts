@@ -53,12 +53,39 @@ export const queries = {
       preferred_maintenance_window,
       replication_group_id,
       cache_cluster_create_time,
+      security_groups::text AS security_groups,
       region,
       tags
     FROM
       aws_elasticache_cluster
     WHERE
       cache_cluster_id = '{id}'
+  `,
+
+  // ElastiCache SG details / ElastiCache SG 상세
+  ecSgDetail: `
+    SELECT
+      group_id, group_name, vpc_id,
+      ip_permissions::text AS inbound_rules
+    FROM
+      aws_vpc_security_group
+    WHERE
+      group_id = '{sg_id}'
+  `,
+
+  // ElastiCache CloudWatch metrics / ElastiCache CloudWatch 메트릭
+  ecMetrics: `
+    SELECT
+      metric_name, average, maximum, minimum, timestamp
+    FROM
+      aws_cloudwatch_metric_statistic_data_point
+    WHERE
+      namespace = 'AWS/ElastiCache'
+      AND dimensions = '[{"Name":"CacheClusterId","Value":"{id}"}]'::jsonb
+      AND metric_name IN ('CPUUtilization', 'FreeableMemory', 'CurrConnections', 'NetworkBytesIn', 'NetworkBytesOut', 'CacheHitRate')
+      AND period = 300
+      AND timestamp >= NOW() - INTERVAL '1 hour'
+    ORDER BY metric_name, timestamp DESC
   `,
 
   clusterList: `
