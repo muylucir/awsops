@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, Database } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, Database, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -13,6 +13,7 @@ interface Message {
   via?: string;           // Routing path display / 라우팅 경로 표시
   route?: string;         // Classified intent route / 분류된 의도 라우트
   statusMessage?: string; // SSE progress status / SSE 진행 상태 메시지
+  responseTime?: number;  // Response time in seconds / 응답 시간 (초)
 }
 
 export default function AIPage() {
@@ -20,6 +21,7 @@ export default function AIPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState<'sonnet-4.6' | 'opus-4.6'>('sonnet-4.6');
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -38,6 +40,7 @@ export default function AIPage() {
     setInput('');
     setLoading(true);
     setStatusMessage('🔍 질문 분석 중...');
+    const startTime = Date.now();
 
     try {
       const res = await fetch('/awsops/api/ai', {
@@ -86,6 +89,7 @@ export default function AIPage() {
                     role: 'assistant', content: data.content,
                     model: data.model, queriedResources: data.queriedResources,
                     via: data.via, route: data.route,
+                    responseTime: Math.round((Date.now() - startTime) / 100) / 10,
                   }]);
                 } else if (eventType === 'error') {
                   setMessages([...newMessages, { role: 'assistant', content: `Error: ${data.error}`, model }]);
@@ -105,6 +109,7 @@ export default function AIPage() {
             role: 'assistant', content: data.content,
             model: data.model, queriedResources: data.queriedResources,
             via: data.via, route: data.route,
+            responseTime: Math.round((Date.now() - startTime) / 100) / 10,
           }]);
         }
       } else {
@@ -158,7 +163,7 @@ export default function AIPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-4xl mx-auto space-y-4 h-full flex flex-col">
+        <div className="max-w-6xl mx-auto space-y-4 h-full flex flex-col">
         {/* Welcome — vertically centered / 수직 가운데 */}
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center flex-1">
@@ -187,7 +192,7 @@ export default function AIPage() {
                 <Bot size={16} className="text-accent-cyan" />
               </div>
             )}
-            <div className={`max-w-3xl rounded-lg px-4 py-3 ${
+            <div className={`max-w-5xl rounded-lg px-4 py-3 ${
               msg.role === 'user'
                 ? 'bg-accent-cyan/10 border border-accent-cyan/20 text-gray-200'
                 : 'bg-navy-800 border border-navy-600 text-gray-300'
@@ -234,9 +239,19 @@ export default function AIPage() {
                 </ReactMarkdown>
               </div>
               {msg.role === 'assistant' && (msg.model || msg.via) && (
-                <div className="text-[10px] text-gray-600 mt-2 text-right font-mono">
-                  {msg.via && <span className="mr-2">{msg.via}</span>}
-                  {msg.model && <span>Claude {msg.model}</span>}
+                <div className="flex items-center justify-between mt-3 pt-2 border-t border-navy-600/50">
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    {msg.via && <span className="text-accent-cyan bg-accent-cyan/10 px-2 py-0.5 rounded">{msg.via}</span>}
+                    {msg.model && <span className="text-gray-400">Claude {msg.model}</span>}
+                    {msg.responseTime && <span className="text-gray-500">{msg.responseTime}s</span>}
+                  </div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(msg.content); setCopiedIdx(i); setTimeout(() => setCopiedIdx(null), 2000); }}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent-cyan transition-colors px-2 py-1 rounded hover:bg-navy-900"
+                    title="Copy to clipboard"
+                  >
+                    {copiedIdx === i ? <><Check size={12} className="text-accent-green" /> Copied</> : <><Copy size={12} /> Copy</>}
+                  </button>
                 </div>
               )}
             </div>
@@ -268,7 +283,7 @@ export default function AIPage() {
 
       {/* Input area */}
       <div className="border-t border-navy-600 bg-navy-800 p-4">
-        <div className="max-w-4xl mx-auto flex items-end gap-3">
+        <div className="max-w-6xl mx-auto flex items-end gap-3">
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}
