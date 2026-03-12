@@ -177,6 +177,9 @@ export default function K8sExplorerPage() {
   const [data, setData] = useState<DashboardData>({});
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [showNodes, setShowNodes] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(async (bustCache = false) => {
@@ -191,6 +194,7 @@ export default function K8sExplorerPage() {
             resources: currentConfig?.query ?? '',
             nodes: NODE_QUERY,
             podRequests: POD_REQUESTS_QUERY,
+            eksClusters: k8sQ.eksClusterList,
           },
         }),
       });
@@ -225,6 +229,7 @@ export default function K8sExplorerPage() {
     setSelectedResource(null);
     setStatusFilter('');
     setNodeFilter('');
+    setCurrentPage(1);
   }, [activeTab]);
 
   const resources = data.resources?.rows || [];
@@ -301,7 +306,13 @@ export default function K8sExplorerPage() {
   }, [resources, selectedNamespace, statusFilter, nodeFilter, searchText]);
 
   const hasFilters = selectedNamespace || statusFilter || nodeFilter || searchText;
-  const clearAllFilters = () => { setSelectedNamespace(''); setStatusFilter(''); setNodeFilter(''); setSearchText(''); };
+  const clearAllFilters = () => { setSelectedNamespace(''); setStatusFilter(''); setNodeFilter(''); setSearchText(''); setCurrentPage(1); };
+
+  // Pagination / 페이지네이션
+  const totalPages = Math.max(1, Math.ceil(filteredResources.length / pageSize));
+  const paginatedResources = filteredResources.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // Reset page when filters change / 필터 변경 시 페이지 리셋
+  useMemo(() => { setCurrentPage(1); }, [selectedNamespace, statusFilter, nodeFilter, searchText]);
 
   const handleRowSelect = (row: any, index: number) => {
     if (selectedRow === index) {
@@ -317,13 +328,20 @@ export default function K8sExplorerPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0e1a] font-mono text-gray-300 flex flex-col">
-      {/* Top Bar */}
+      {/* Top Bar with Cluster info / 클러스터 정보 포함 상단 바 */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#0d1220] border-b border-navy-700">
         <div className="flex items-center gap-3">
           <span className="text-accent-green font-bold text-lg tracking-wider">K9s</span>
           <span className="text-gray-600">|</span>
           <span className="text-accent-cyan text-sm">Explorer</span>
           <span className="text-gray-600">|</span>
+          {(data.eksClusters?.rows || []).map((c: any) => (
+            <span key={c.cluster_name} className="text-xs font-mono bg-navy-800 border border-navy-600 px-2 py-0.5 rounded">
+              <span className="text-accent-green">{c.cluster_name}</span>
+              <span className="text-gray-600 ml-1">v{c.version}</span>
+              <span className="text-gray-600 ml-1">({c.vpc_id?.slice(-8)})</span>
+            </span>
+          ))}
           <span className="text-gray-500 text-xs">
             {filteredResources.length} resources
           </span>
@@ -350,9 +368,19 @@ export default function K8sExplorerPage() {
         </div>
       </div>
 
-      {/* Cluster Header */}
-      <div className="px-4 py-2">
-        <K9sClusterHeader context="kubernetes-cluster" nodes={nodes} />
+      {/* Cluster Header — collapsible / 접을 수 있는 클러스터 헤더 */}
+      <div className="px-4 py-1">
+        <button onClick={() => setShowNodes(!showNodes)}
+          className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors w-full">
+          <span className={`transition-transform ${showNodes ? 'rotate-90' : ''}`}>▶</span>
+          <span className="text-accent-green font-mono">{nodes.length} Nodes</span>
+          <span className="text-gray-600">— click to {showNodes ? 'collapse' : 'expand'}</span>
+        </button>
+        {showNodes && (
+          <div className="mt-2">
+            <K9sClusterHeader context="kubernetes-cluster" nodes={nodes} />
+          </div>
+        )}
       </div>
 
       {/* Resource Tabs */}
@@ -423,12 +451,40 @@ export default function K8sExplorerPage() {
         ) : (
           <K9sResourceTable
             columns={currentConfig?.columns ?? []}
-            data={filteredResources}
+            data={paginatedResources}
             onSelect={handleRowSelect}
             selectedRow={selectedRow}
           />
         )}
       </div>
+
+      {/* Pagination / 페이지네이션 */}
+      {filteredResources.length > pageSize && (
+        <div className="px-4 py-1.5 border-t border-navy-700/50 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-500 font-mono">Rows/page:</span>
+            {[25, 50, 100, 200].map(size => (
+              <button key={size} onClick={() => { setPageSize(size); setCurrentPage(1); }}
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${pageSize === size ? 'bg-accent-cyan/20 text-accent-cyan' : 'text-gray-600 hover:text-gray-300'}`}>
+                {size}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1}
+              className="text-[10px] px-2 py-0.5 rounded bg-navy-800 border border-navy-600 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed font-mono">
+              ◀ Prev
+            </button>
+            <span className="text-[10px] text-gray-500 font-mono">
+              {currentPage} / {totalPages} ({filteredResources.length} total)
+            </span>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}
+              className="text-[10px] px-2 py-0.5 rounded bg-navy-800 border border-navy-600 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed font-mono">
+              Next ▶
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Status Bar */}
       <div className="px-4 py-1.5 bg-[#0d1220] border-t border-navy-700 flex items-center justify-between text-[10px] text-gray-600">
