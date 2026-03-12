@@ -24,50 +24,17 @@ const NODE_DETAIL_QUERY = `
   ORDER BY name
 `;
 
-// Pod resource requests aggregated per node / 노드별 Pod 리소스 요청 집계
+// Pod container resource requests (raw) / Pod 컨테이너 리소스 요청 (원시값)
 const POD_REQUESTS_QUERY = `
   SELECT
-    node_name,
-    COUNT(*) AS pod_count,
-    SUM(
-      CASE
-        WHEN c->>'resources' IS NOT NULL
-          AND (c->'resources'->'requests'->>'cpu') IS NOT NULL
-        THEN
-          CASE
-            WHEN (c->'resources'->'requests'->>'cpu') LIKE '%m'
-            THEN CAST(REPLACE(c->'resources'->'requests'->>'cpu', 'm', '') AS numeric) / 1000
-            ELSE CAST(c->'resources'->'requests'->>'cpu' AS numeric)
-          END
-        ELSE 0
-      END
-    ) AS cpu_requests,
-    SUM(
-      CASE
-        WHEN c->>'resources' IS NOT NULL
-          AND (c->'resources'->'requests'->>'memory') IS NOT NULL
-        THEN
-          CASE
-            WHEN (c->'resources'->'requests'->>'memory') LIKE '%Ki'
-            THEN CAST(REPLACE(c->'resources'->'requests'->>'memory', 'Ki', '') AS numeric) / 1024
-            WHEN (c->'resources'->'requests'->>'memory') LIKE '%Mi'
-            THEN CAST(REPLACE(c->'resources'->'requests'->>'memory', 'Mi', '') AS numeric)
-            WHEN (c->'resources'->'requests'->>'memory') LIKE '%Gi'
-            THEN CAST(REPLACE(c->'resources'->'requests'->>'memory', 'Gi', '') AS numeric) * 1024
-            ELSE 0
-          END
-        ELSE 0
-      END
-    ) AS memory_requests_mib
+    p.node_name,
+    c->'resources'->'requests'->>'cpu' AS cpu_req,
+    c->'resources'->'requests'->>'memory' AS mem_req
   FROM
-    kubernetes_pod,
-    jsonb_array_elements(containers) AS c
+    kubernetes_pod p,
+    jsonb_array_elements(p.containers) AS c
   WHERE
-    phase = 'Running' AND node_name IS NOT NULL
-  GROUP BY
-    node_name
-  ORDER BY
-    node_name
+    p.phase = 'Running' AND p.node_name IS NOT NULL
 `;
 
 // Format K8s memory values (e.g. "32986188Ki" → "31.5 GiB") / K8s 메모리 가독성 변환
@@ -131,16 +98,19 @@ export default function K8sNodesPage() {
 
   const summary = getFirst('nodeSummary') as any;
   const nodes = get('nodeList');
-  const podRequests = get('podRequests');
+  const podReqRows = get('podRequests');
 
-  // Build node → pod requests map / 노드별 Pod 리소스 요청 맵
+  // Aggregate pod requests per node in frontend / 프론트엔드에서 노드별 Pod 요청 집계
   const reqMap: Record<string, { cpuReq: number; memReqMiB: number; podCount: number }> = {};
-  podRequests.forEach((r: any) => {
-    reqMap[String(r.node_name)] = {
-      cpuReq: Number(r.cpu_requests) || 0,
-      memReqMiB: Number(r.memory_requests_mib) || 0,
-      podCount: Number(r.pod_count) || 0,
-    };
+  podReqRows.forEach((r: any) => {
+    const node = String(r.node_name || '');
+    if (!node) return;
+    if (!reqMap[node]) reqMap[node] = { cpuReq: 0, memReqMiB: 0, podCount: 0 };
+    reqMap[node].podCount += 1;
+    // Parse CPU request (e.g. "250m" → 0.25, "1" → 1) / CPU 요청 파싱
+    if (r.cpu_req) reqMap[node].cpuReq += parseCpu(r.cpu_req);
+    // Parse Memory request (e.g. "128Mi", "1Gi", "256Ki") / 메모리 요청 파싱
+    if (r.mem_req) reqMap[node].memReqMiB += parseMiB(r.mem_req);
   });
 
   // CPU & Memory capacity bar data
