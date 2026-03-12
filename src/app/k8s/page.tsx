@@ -108,29 +108,51 @@ export default function K8sOverviewPage() {
     try {
       const ipPrefix = nodeName.split('.')[0];
       const eniSql = `SELECT network_interface_id, status, interface_type, private_ip_address::text AS primary_ip, attachment_status, private_ip_addresses::text AS all_ips FROM aws_ec2_network_interface WHERE attached_instance_id IN (SELECT instance_id FROM aws_ec2_instance WHERE private_dns_name LIKE '${ipPrefix}%')`;
-      const trafficSql = `SELECT metric_name, average, unit, timestamp FROM aws_cloudwatch_metric_statistic_data_point WHERE namespace = 'AWS/EC2' AND metric_name IN ('NetworkIn', 'NetworkOut', 'NetworkPacketsIn', 'NetworkPacketsOut') AND dimension_name = 'InstanceId' AND dimension_value IN (SELECT instance_id FROM aws_ec2_instance WHERE private_dns_name LIKE '${ipPrefix}%') AND period = 300 AND timestamp >= NOW() - INTERVAL '1 hour' ORDER BY metric_name, timestamp DESC`;
       const res = await fetch('/awsops/api/steampipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ queries: { enis: eniSql, traffic: trafficSql } }),
+        body: JSON.stringify({ queries: { enis: eniSql } }),
       });
       const result = await res.json();
-      setNodeEnis(result.enis?.rows || []);
-      // Aggregate traffic metrics / 트래픽 메트릭 집계
-      const trafficRows = result.traffic?.rows || [];
-      const metrics: Record<string, number[]> = {};
-      trafficRows.forEach((r: any) => {
-        const name = String(r.metric_name);
-        if (!metrics[name]) metrics[name] = [];
-        metrics[name].push(Number(r.average) || 0);
-      });
-      const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-      setNodeTraffic({
-        networkIn: avg(metrics['NetworkIn'] || []),
-        networkOut: avg(metrics['NetworkOut'] || []),
-        packetsIn: avg(metrics['NetworkPacketsIn'] || []),
-        packetsOut: avg(metrics['NetworkPacketsOut'] || []),
-      });
+      const eniRows = result.enis?.rows || [];
+      setNodeEnis(eniRows);
+
+      // Fetch per-ENI traffic from CloudWatch / ENI별 트래픽 조회
+      if (eniRows.length > 0) {
+        const eniIds = eniRows.map((e: any) => `'${e.network_interface_id}'`).join(',');
+        const trafficSql = `SELECT dimension_value AS eni_id, metric_name, average, timestamp FROM aws_cloudwatch_metric_statistic_data_point WHERE namespace = 'AWS/EC2' AND metric_name IN ('NetworkIn', 'NetworkOut', 'NetworkPacketsIn', 'NetworkPacketsOut') AND dimension_name = 'NetworkInterfaceId' AND dimension_value IN (${eniIds}) AND period = 300 AND timestamp >= NOW() - INTERVAL '1 hour' ORDER BY dimension_value, metric_name, timestamp DESC`;
+        try {
+          const tRes = await fetch('/awsops/api/steampipe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queries: { traffic: trafficSql } }),
+          });
+          const tResult = await tRes.json();
+          const trafficRows = tResult.traffic?.rows || [];
+          // Group by ENI → metric → avg / ENI별 메트릭 평균 집계
+          const perEni: Record<string, Record<string, number[]>> = {};
+          trafficRows.forEach((r: any) => {
+            const eni = String(r.eni_id);
+            const metric = String(r.metric_name);
+            if (!perEni[eni]) perEni[eni] = {};
+            if (!perEni[eni][metric]) perEni[eni][metric] = [];
+            perEni[eni][metric].push(Number(r.average) || 0);
+          });
+          const avgArr = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+          const trafficMap: Record<string, any> = {};
+          Object.entries(perEni).forEach(([eni, metrics]) => {
+            trafficMap[eni] = {
+              networkIn: avgArr(metrics['NetworkIn'] || []),
+              networkOut: avgArr(metrics['NetworkOut'] || []),
+              packetsIn: avgArr(metrics['NetworkPacketsIn'] || []),
+              packetsOut: avgArr(metrics['NetworkPacketsOut'] || []),
+            };
+          });
+          setNodeTraffic(trafficMap);
+        } catch {
+          setNodeTraffic({});
+        }
+      }
     } catch {
       setNodeEnis([]);
     } finally {
@@ -366,28 +388,6 @@ export default function K8sOverviewPage() {
               Network Interfaces (ENI)
               {!eniLoading && <span className="text-xs text-gray-500 font-normal ml-2">{nodeEnis.length} ENIs</span>}
             </h2>
-            {/* Traffic Summary / 트래픽 요약 */}
-            {nodeTraffic && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Network In (avg/5m)</p>
-                  <p className="text-lg font-mono font-bold text-accent-cyan">{formatBytes(nodeTraffic.networkIn)}</p>
-                </div>
-                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Network Out (avg/5m)</p>
-                  <p className="text-lg font-mono font-bold text-accent-purple">{formatBytes(nodeTraffic.networkOut)}</p>
-                </div>
-                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Packets In (avg/5m)</p>
-                  <p className="text-lg font-mono font-bold text-accent-green">{formatPackets(nodeTraffic.packetsIn)}</p>
-                </div>
-                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Packets Out (avg/5m)</p>
-                  <p className="text-lg font-mono font-bold text-accent-orange">{formatPackets(nodeTraffic.packetsOut)}</p>
-                </div>
-              </div>
-            )}
-
             {eniLoading ? (
               <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-24 skeleton rounded" />)}</div>
             ) : nodeEnis.length > 0 ? (
@@ -397,7 +397,7 @@ export default function K8sOverviewPage() {
                   try { ips = JSON.parse(eni.all_ips || '[]'); } catch {}
                   const totalSlots = ips.length;
                   const secondaryIps = ips.filter((ip: any) => !ip.Primary);
-                  // Max IPs per ENI depends on instance type, use actual count as capacity hint
+                  const eniTraffic = nodeTraffic?.[eni.network_interface_id];
                   return (
                     <div key={eni.network_interface_id} className="bg-navy-800 border border-navy-600 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
@@ -410,7 +410,7 @@ export default function K8sOverviewPage() {
                         <div className="flex justify-between"><span className="text-gray-500">IPs Allocated</span><span className="text-accent-cyan font-mono">{totalSlots} ({secondaryIps.length} secondary)</span></div>
                       </div>
                       {/* IP usage bar / IP 사용량 바 */}
-                      <div className="mb-2">
+                      <div className="mb-3">
                         <div className="flex items-center justify-between text-[10px] mb-1">
                           <span className="text-gray-500">IP Slots Used</span>
                           <span className="text-white font-mono">{totalSlots} / 15</span>
@@ -419,8 +419,21 @@ export default function K8sOverviewPage() {
                           <div className={`h-full rounded-full ${totalSlots >= 14 ? 'bg-accent-red' : totalSlots >= 10 ? 'bg-accent-orange' : 'bg-accent-cyan'}`} style={{ width: `${Math.min((totalSlots / 15) * 100, 100)}%` }} />
                         </div>
                       </div>
+                      {/* Per-ENI Traffic / ENI별 트래픽 */}
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div className="bg-navy-900 rounded p-2 text-center">
+                          <p className="text-[9px] text-gray-500 uppercase">In (avg/5m)</p>
+                          <p className="text-sm font-mono font-bold text-accent-cyan">{eniTraffic ? formatBytes(eniTraffic.networkIn) : '--'}</p>
+                          <p className="text-[9px] text-gray-600">{eniTraffic ? `${formatPackets(eniTraffic.packetsIn)} pkts` : ''}</p>
+                        </div>
+                        <div className="bg-navy-900 rounded p-2 text-center">
+                          <p className="text-[9px] text-gray-500 uppercase">Out (avg/5m)</p>
+                          <p className="text-sm font-mono font-bold text-accent-purple">{eniTraffic ? formatBytes(eniTraffic.networkOut) : '--'}</p>
+                          <p className="text-[9px] text-gray-600">{eniTraffic ? `${formatPackets(eniTraffic.packetsOut)} pkts` : ''}</p>
+                        </div>
+                      </div>
                       {/* Secondary IPs (collapsed) / 세컨더리 IP 목록 */}
-                      <details className="mt-2">
+                      <details>
                         <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-300">Show {secondaryIps.length} secondary IPs</summary>
                         <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5">
                           {secondaryIps.map((ip: any, i: number) => (
