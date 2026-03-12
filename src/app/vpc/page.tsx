@@ -23,6 +23,7 @@ export default function VPCPage() {
   const [vpcMap, setVpcMap] = useState<{ subnets: any[]; routeTables: any[]; vpcInfo: any } | null>(null);
   const [showResourceMap, setShowResourceMap] = useState(false);
   const [mapSelection, setMapSelection] = useState<{ type: string; id: string } | null>(null);
+  const [mapSearch, setMapSearch] = useState('');
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -708,6 +709,14 @@ export default function VPCPage() {
                 </h1>
                 <div className="flex items-center gap-3 mt-1">
                   <p className="text-sm text-gray-400">Resource Map</p>
+                  <div className="relative">
+                    <input type="text" value={mapSearch} onChange={(e) => { setMapSearch(e.target.value); setMapSelection(null); }}
+                      placeholder="Search subnet, RT, target..."
+                      className="bg-navy-800 border border-navy-600 rounded-lg pl-3 pr-3 py-1 text-xs text-gray-200 placeholder-gray-600 w-56 focus:ring-accent-cyan focus:border-accent-cyan focus:outline-none" />
+                  </div>
+                  {mapSearch && (
+                    <button onClick={() => setMapSearch('')} className="text-[10px] text-gray-500 hover:text-white">Clear search</button>
+                  )}
                   {mapSelection && (
                     <button onClick={() => setMapSelection(null)}
                       className="text-[10px] px-2 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/30">
@@ -716,7 +725,7 @@ export default function VPCPage() {
                   )}
                 </div>
               </div>
-              <button onClick={() => { setShowResourceMap(false); setMapSelection(null); }}
+              <button onClick={() => { setShowResourceMap(false); setMapSelection(null); setMapSearch(''); }}
                 className="px-4 py-2 rounded-lg bg-navy-800 border border-navy-600 text-gray-400 hover:text-white transition-colors">
                 <X size={18} />
               </button>
@@ -813,12 +822,49 @@ export default function VPCPage() {
                   });
                 }
               }
-              const hasHl = mapSelection !== null;
+              // Search-based highlight / 검색 기반 하이라이트
+              const searchLower = mapSearch.toLowerCase();
+              const searchHlSubnets = new Set<string>();
+              const searchHlRts = new Set<string>();
+              const searchHlTargets = new Set<string>();
+              if (mapSearch) {
+                vpcMap.subnets.forEach((s: any) => {
+                  if ((s.name || '').toLowerCase().includes(searchLower) || (s.subnet_id || '').toLowerCase().includes(searchLower) || (s.cidr_block || '').includes(searchLower)) {
+                    searchHlSubnets.add(s.subnet_id);
+                    const rtId = subnetToRt[s.subnet_id] || mainRtId;
+                    if (rtId) { searchHlRts.add(rtId); rtToTargets[rtId]?.forEach(t => searchHlTargets.add(t)); }
+                  }
+                });
+                vpcMap.routeTables.forEach((rt: any) => {
+                  if ((rt.name || '').toLowerCase().includes(searchLower) || (rt.route_table_id || '').toLowerCase().includes(searchLower)) {
+                    searchHlRts.add(rt.route_table_id);
+                    (rtToSubnets[rt.route_table_id] || []).forEach(s => searchHlSubnets.add(s));
+                    if (rt.route_table_id === mainRtId) vpcMap.subnets.forEach((s: any) => { if (!subnetToRt[s.subnet_id]) searchHlSubnets.add(s.subnet_id); });
+                    rtToTargets[rt.route_table_id]?.forEach(t => searchHlTargets.add(t));
+                  }
+                });
+                Object.values(networkTargets).forEach(t => {
+                  if (t.id.toLowerCase().includes(searchLower) || t.type.toLowerCase().includes(searchLower)) {
+                    searchHlTargets.add(t.id);
+                    Object.entries(rtToTargets).forEach(([rtId, targets]) => {
+                      if (targets.has(t.id)) { searchHlRts.add(rtId); (rtToSubnets[rtId] || []).forEach(s => searchHlSubnets.add(s)); }
+                    });
+                  }
+                });
+              }
+
+              const hasHl = mapSelection !== null || mapSearch.length > 0;
               const isHl = (type: string, id: string) => {
-                if (!hasHl) return false;
-                if (type === 'subnet') return hlSubnets.has(id);
-                if (type === 'rt') return hlRts.has(id);
-                if (type === 'target') return hlTargets.has(id);
+                if (mapSearch) {
+                  if (type === 'subnet') return searchHlSubnets.has(id);
+                  if (type === 'rt') return searchHlRts.has(id);
+                  if (type === 'target') return searchHlTargets.has(id);
+                }
+                if (mapSelection) {
+                  if (type === 'subnet') return hlSubnets.has(id);
+                  if (type === 'rt') return hlRts.has(id);
+                  if (type === 'target') return hlTargets.has(id);
+                }
                 return false;
               };
               const dimmed = (type: string, id: string) => hasHl && !isHl(type, id);
