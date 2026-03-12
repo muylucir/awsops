@@ -20,6 +20,9 @@ import {
   GitBranch,
   Activity,
   BrainCircuit,
+  Globe,
+  Shield,
+  Package,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -48,14 +51,17 @@ const navGroups: NavGroup[] = [
       { label: 'EC2', href: '/ec2', icon: Server },
       { label: 'Lambda', href: '/lambda', icon: Zap },
       { label: 'ECS', href: '/ecs', icon: Container },
+      { label: 'ECR', href: '/ecr', icon: Package },
       { label: 'EKS', href: '/k8s', icon: Box },
       { label: 'EKS Explorer', href: '/k8s/explorer', icon: Terminal },
     ],
   },
   {
-    title: 'Network',
+    title: 'Network & CDN',
     items: [
       { label: 'VPC / Network', href: '/vpc', icon: Network },
+      { label: 'CloudFront', href: '/cloudfront-cdn', icon: Globe },
+      { label: 'WAF', href: '/waf', icon: Shield },
       { label: 'Topology', href: '/topology', icon: GitBranch },
     ],
   },

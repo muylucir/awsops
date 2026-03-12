@@ -9,7 +9,7 @@ import BarChartCard from '@/components/charts/BarChartCard';
 import {
   Server, Database, DollarSign, Box, Shield, Network,
   Bell, Container, ShieldCheck, AlertTriangle, Zap, Table,
-  FileSearch,
+  FileSearch, Globe, Shield, Package,
 } from 'lucide-react';
 import { queries as ec2Q } from '@/lib/queries/ec2';
 import { queries as s3Q } from '@/lib/queries/s3';
@@ -25,6 +25,9 @@ import { queries as k8sQ } from '@/lib/queries/k8s';
 import { queries as secQ } from '@/lib/queries/security';
 import { queries as ecacheQ } from '@/lib/queries/elasticache';
 import { queries as ctQ } from '@/lib/queries/cloudtrail';
+import { queries as cfQ } from '@/lib/queries/cloudfront';
+import { queries as wafQ } from '@/lib/queries/waf';
+import { queries as ecrQ } from '@/lib/queries/ecr';
 
 interface DashboardData {
   [key: string]: { rows: Record<string, unknown>[]; error?: string };
@@ -73,6 +76,9 @@ export default function DashboardPage() {
             secSummary: secQ.summary,
             ecacheSummary: ecacheQ.summary,
             ctSummary: ctQ.summary,
+            cfSummary: cfQ.summary,
+            wafSummary: wafQ.summary,
+            ecrSummary: ecrQ.summary,
             k8sWarnings: k8sQ.warningEvents,
           },
         }),
@@ -104,6 +110,9 @@ export default function DashboardPage() {
   const sec = getFirst('secSummary') as any;
   const ecache = getFirst('ecacheSummary') as any;
   const ct = getFirst('ctSummary') as any;
+  const cf = getFirst('cfSummary') as any;
+  const waf = getFirst('wafSummary') as any;
+  const ecrSum = getFirst('ecrSummary') as any;
   const podSum = getFirst('k8sPods') as any;
   const totalPods = Number(podSum?.total_pods) || 0;
 
@@ -179,6 +188,10 @@ export default function DashboardPage() {
             <StatsCard label="ECS Tasks" value={Number(ecs?.total_tasks) || 0} icon={Container} color="orange"
               change={`${Number(ecs?.total_clusters) || 0} clusters · ${Number(ecs?.total_services) || 0} services`} />
           </CardLink>
+          <CardLink href="/ecr">
+            <StatsCard label="ECR" value={Number(ecrSum?.total_repos) || 0} icon={Package} color="green"
+              change={`${Number(ecrSum?.scan_enabled) || 0} scan · ${Number(ecrSum?.immutable_tags) || 0} immutable`} />
+          </CardLink>
           <CardLink href="/k8s">
             <StatsCard label="K8s Nodes" value={Number(k8sNodes?.total_nodes) || 0} icon={Box} color="pink"
               change={`${Number(k8sNodes?.ready_nodes) || 0} ready · ${totalPods} pods`} />
@@ -221,6 +234,14 @@ export default function DashboardPage() {
           <CardLink href="/s3">
             <StatsCard label="S3 Buckets" value={Number(s3?.total_buckets) || 0} icon={Database} color="green"
               change={pubBuckets > 0 ? `${pubBuckets} public! · ${Number(s3?.total_buckets) - pubBuckets} private` : `All private`} />
+          </CardLink>
+          <CardLink href="/cloudfront-cdn">
+            <StatsCard label="CloudFront" value={Number(cf?.total_distributions) || 0} icon={Globe} color="cyan"
+              change={`${Number(cf?.enabled_count) || 0} enabled · ${Number(cf?.http_allowed) || 0} HTTP`} />
+          </CardLink>
+          <CardLink href="/waf">
+            <StatsCard label="WAF" value={Number(waf?.total_web_acls) || 0} icon={Shield} color="purple"
+              change={`${Number(waf?.total_rule_groups) || 0} rule groups · ${Number(waf?.total_ip_sets) || 0} IP sets`} />
           </CardLink>
         </div>
       </div>
