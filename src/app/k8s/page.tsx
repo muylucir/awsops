@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Filter, X as XIcon } from 'lucide-react';
+import { Filter } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import StatsCard from '@/components/dashboard/StatsCard';
 import StatusBadge from '@/components/dashboard/StatusBadge';
@@ -112,14 +112,14 @@ export default function K8sOverviewPage() {
   const toggleCluster = (name: string) => {
     setSelectedClusters(prev => {
       const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
+      if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   };
   const toggleVpc = (vpc: string) => {
     setSelectedVpcs(prev => {
       const next = new Set(prev);
-      next.has(vpc) ? next.delete(vpc) : next.add(vpc);
+      if (next.has(vpc)) next.delete(vpc); else next.add(vpc);
       return next;
     });
   };
