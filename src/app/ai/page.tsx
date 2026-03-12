@@ -158,10 +158,10 @@ export default function AIPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-4xl mx-auto space-y-4">
-        {/* Welcome */}
+        <div className="max-w-4xl mx-auto space-y-4 h-full flex flex-col">
+        {/* Welcome — vertically centered / 수직 가운데 */}
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16">
+          <div className="flex flex-col items-center justify-center flex-1">
             <div className="p-4 rounded-2xl bg-accent-cyan/10 mb-4">
               <Sparkles size={40} className="text-accent-cyan" />
             </div>
