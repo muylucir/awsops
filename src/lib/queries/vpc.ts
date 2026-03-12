@@ -101,6 +101,35 @@ export const queries = {
     WHERE internet_gateway_id = '{igw_id}'
   `,
 
+  // TGW Route Tables for a specific TGW / 특정 TGW의 라우트 테이블
+  tgwRouteTables: `
+    SELECT
+      transit_gateway_route_table_id,
+      transit_gateway_id,
+      state,
+      default_association_route_table,
+      default_propagation_route_table,
+      creation_time,
+      tags ->> 'Name' AS name
+    FROM aws_ec2_transit_gateway_route_table
+    WHERE transit_gateway_id = '{tgw_id}'
+    ORDER BY transit_gateway_route_table_id
+  `,
+
+  // TGW Routes for a specific route table / 특정 TGW 라우트 테이블의 라우트
+  tgwRoutes: `
+    SELECT
+      transit_gateway_route_table_id,
+      destination_cidr_block,
+      prefix_list_id,
+      state,
+      type,
+      transit_gateway_attachments::text AS attachments
+    FROM aws_ec2_transit_gateway_route
+    WHERE transit_gateway_route_table_id = '{rt_id}'
+    ORDER BY destination_cidr_block
+  `,
+
   routeTableList: `
     SELECT
       route_table_id, vpc_id, owner_id, region,

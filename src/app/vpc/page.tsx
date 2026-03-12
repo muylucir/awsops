@@ -18,6 +18,8 @@ export default function VPCPage() {
   const [selected, setSelected] = useState<any>(null);
   const [detailType, setDetailType] = useState<string>('');
   const [detailLoading, setDetailLoading] = useState(false);
+  const [tgwRouteTables, setTgwRouteTables] = useState<any[]>([]);
+  const [tgwRoutes, setTgwRoutes] = useState<Record<string, any[]>>({});
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -58,6 +60,45 @@ export default function VPCPage() {
       });
       const result = await res.json();
       if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
+    } catch {} finally { setDetailLoading(false); }
+  };
+
+  // Fetch TGW detail with route tables + routes / TGW 상세 + 라우트 테이블 + 라우트
+  const fetchTgwDetail = async (tgwId: string) => {
+    setDetailLoading(true);
+    setDetailType('tgw');
+    setTgwRouteTables([]);
+    setTgwRoutes({});
+    try {
+      const detailSql = vpcQ.tgwDetail.replace('{tgw_id}', tgwId);
+      const rtSql = vpcQ.tgwRouteTables.replace('{tgw_id}', tgwId);
+      const res = await fetch('/awsops/api/steampipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queries: { detail: detailSql, tgwRTs: rtSql } }),
+      });
+      const result = await res.json();
+      if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
+      const rts = result.tgwRTs?.rows || [];
+      setTgwRouteTables(rts);
+      // Fetch routes for each route table / 각 라우트 테이블의 라우트 조회
+      if (rts.length > 0) {
+        const routeQueries: Record<string, string> = {};
+        rts.forEach((rt: any) => {
+          routeQueries[rt.transit_gateway_route_table_id] = vpcQ.tgwRoutes.replace('{rt_id}', rt.transit_gateway_route_table_id);
+        });
+        const rRes = await fetch('/awsops/api/steampipe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ queries: routeQueries }),
+        });
+        const rResult = await rRes.json();
+        const routeMap: Record<string, any[]> = {};
+        Object.entries(rResult).forEach(([rtId, val]: [string, any]) => {
+          routeMap[rtId] = val?.rows || [];
+        });
+        setTgwRoutes(routeMap);
+      }
     } catch {} finally { setDetailLoading(false); }
   };
 
@@ -197,7 +238,7 @@ export default function VPCPage() {
             { key: 'dns_support', label: 'DNS' },
             { key: 'region', label: 'Region' },
           ]} data={loading && !tgws.length ? undefined : tgws}
-             onRowClick={(row) => fetchDetail('tgw', vpcQ.tgwDetail, '{tgw_id}', row.transit_gateway_id)} />
+             onRowClick={(row) => fetchTgwDetail(row.transit_gateway_id)} />
           {tgwAttachments.length > 0 && (
             <div>
               <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3 mt-4">TGW Attachments</h3>
@@ -430,6 +471,48 @@ export default function VPCPage() {
                     <Row label="CIDR Blocks" value={parseArray(selected.cidr_blocks).join(', ') || '--'} />
                     <Row label="Created" value={selected.creation_time ? new Date(selected.creation_time).toLocaleString() : '--'} />
                   </Section>
+
+                  {/* TGW Route Tables + Routes / TGW 라우트 테이블 + 라우트 */}
+                  {tgwRouteTables.length > 0 && tgwRouteTables.map((rt: any) => {
+                    const routes = tgwRoutes[rt.transit_gateway_route_table_id] || [];
+                    return (
+                      <div key={rt.transit_gateway_route_table_id}>
+                        <Section title={`Route Table: ${rt.transit_gateway_route_table_id}`} icon={ArrowRightLeft}>
+                          <div className="space-y-1.5 mb-3">
+                            <Row label="Name" value={rt.name || '--'} />
+                            <Row label="State" value={rt.state} />
+                            <Row label="Default Assoc" value={rt.default_association_route_table ? 'Yes' : 'No'} />
+                            <Row label="Default Prop" value={rt.default_propagation_route_table ? 'Yes' : 'No'} />
+                          </div>
+                          {routes.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="grid grid-cols-4 gap-2 text-[10px] font-mono uppercase text-gray-500 mb-1 px-2">
+                                <span>Destination</span><span>Type</span><span>Target</span><span>State</span>
+                              </div>
+                              {routes.map((r: any, i: number) => {
+                                const dest = r.destination_cidr_block || r.prefix_list_id || '--';
+                                let target = '--';
+                                try {
+                                  const att = JSON.parse(r.attachments || '[]');
+                                  if (Array.isArray(att) && att.length > 0) {
+                                    target = att.map((a: any) => `${a.TransitGatewayAttachmentId || a.transit_gateway_attachment_id || ''} (${a.ResourceType || a.resource_type || ''})`).join(', ');
+                                  }
+                                } catch {}
+                                return (
+                                  <div key={i} className={`grid grid-cols-4 gap-2 text-xs font-mono px-2 py-1.5 rounded ${r.state === 'active' ? 'bg-navy-800' : 'bg-navy-800/50 text-gray-600'}`}>
+                                    <span className="text-accent-cyan">{dest}</span>
+                                    <span className="text-gray-400">{r.type || '--'}</span>
+                                    <span className="text-gray-300 truncate" title={target}>{target}</span>
+                                    <span className={r.state === 'active' ? 'text-accent-green' : 'text-accent-red'}>{r.state}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="text-gray-500 text-sm">No routes</p>}
+                        </Section>
+                      </div>
+                    );
+                  })}
                 </>)}
 
                 {/* ELB Detail */}
