@@ -68,6 +68,9 @@ export default function TopologyPage() {
   const [data, setData] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'infra' | 'k8s'>('infra');
+  const [infraMode, setInfraMode] = useState<'graph' | 'map'>('map');
+  const [infraSearch, setInfraSearch] = useState('');
+  const [infraSelected, setInfraSelected] = useState<{ type: string; id: string } | null>(null);
   const [k8sSearch, setK8sSearch] = useState('');
   const [k8sSelected, setK8sSelected] = useState<{ type: string; key: string } | null>(null);
 
@@ -222,6 +225,116 @@ export default function TopologyPage() {
 
     return { nodes, edges };
   }, [data]);
+
+  // Infra Map Data — for resource map view / 인프라 맵 데이터 — 리소스 맵 뷰용
+  const infraMapData = useMemo(() => {
+    const vpcs = get('vpcSubnets');
+    const ec2s = get('ec2');
+    const elbs = get('elb');
+    const nats = get('nat');
+    const igws = get('igw');
+    const tgws = get('tgw');
+    const rdss = get('rds');
+
+    // Unique VPCs / 고유 VPC
+    const vpcList: any[] = [];
+    const vpcSeen = new Set<string>();
+    vpcs.forEach((r: any) => {
+      if (r.vpc_id && !vpcSeen.has(r.vpc_id)) {
+        vpcSeen.add(r.vpc_id);
+        vpcList.push({ id: r.vpc_id, name: r.vpc_name || r.vpc_id.slice(-8), cidr: r.vpc_cidr });
+      }
+    });
+
+    // Subnets / 서브넷
+    const subnetList: any[] = [];
+    const subSeen = new Set<string>();
+    vpcs.forEach((r: any) => {
+      if (r.subnet_id && !subSeen.has(r.subnet_id)) {
+        subSeen.add(r.subnet_id);
+        subnetList.push({ id: r.subnet_id, name: r.subnet_name || r.subnet_id.slice(-8), vpc_id: r.vpc_id, cidr: r.subnet_cidr, az: r.availability_zone });
+      }
+    });
+
+    // EC2 → subnet / EC2 → 서브넷
+    const ec2BySubnet: Record<string, any[]> = {};
+    ec2s.forEach((r: any) => {
+      if (!r.subnet_id) return;
+      if (!ec2BySubnet[r.subnet_id]) ec2BySubnet[r.subnet_id] = [];
+      ec2BySubnet[r.subnet_id].push(r);
+    });
+
+    // Unique targets / 고유 타겟
+    const uniqueIgws = igws.filter((r: any, i: number, arr: any[]) => arr.findIndex((a: any) => a.internet_gateway_id === r.internet_gateway_id) === i);
+    const uniqueNats = nats.filter((r: any, i: number, arr: any[]) => arr.findIndex((a: any) => a.nat_gateway_id === r.nat_gateway_id) === i);
+    const uniqueTgws = tgws.filter((r: any, i: number, arr: any[]) => arr.findIndex((a: any) => a.transit_gateway_id === r.transit_gateway_id) === i);
+
+    return { vpcList, subnetList, ec2s, elbs, rdss, ec2BySubnet, igws: uniqueIgws, nats: uniqueNats, tgws: uniqueTgws };
+  }, [data]);
+
+  // Infra map highlight / 인프라 맵 하이라이트
+  const infraHl = useMemo(() => {
+    const hl = { vpcs: new Set<string>(), subnets: new Set<string>(), ec2s: new Set<string>(), targets: new Set<string>() };
+    const lower = infraSearch.toLowerCase();
+    const sel = infraSelected;
+
+    if (infraSearch) {
+      infraMapData.ec2s.forEach((e: any) => {
+        if ([e.name, e.instance_id, e.private_ip_address, e.public_ip_address, e.instance_type].some(v => (v || '').toLowerCase().includes(lower))) {
+          hl.ec2s.add(e.instance_id);
+          if (e.subnet_id) hl.subnets.add(e.subnet_id);
+          if (e.vpc_id) hl.vpcs.add(e.vpc_id);
+        }
+      });
+      infraMapData.subnetList.forEach((s: any) => {
+        if ([s.name, s.id, s.cidr].some(v => (v || '').toLowerCase().includes(lower))) {
+          hl.subnets.add(s.id);
+          hl.vpcs.add(s.vpc_id);
+        }
+      });
+      infraMapData.vpcList.forEach((v: any) => {
+        if ([v.name, v.id, v.cidr].some(val => (val || '').toLowerCase().includes(lower))) hl.vpcs.add(v.id);
+      });
+      [...infraMapData.igws, ...infraMapData.nats, ...infraMapData.tgws].forEach((t: any) => {
+        const tid = t.internet_gateway_id || t.nat_gateway_id || t.transit_gateway_id || '';
+        const tname = t.name || '';
+        if ([tid, tname].some(v => v.toLowerCase().includes(lower))) hl.targets.add(tid);
+      });
+    }
+    if (sel) {
+      if (sel.type === 'vpc') {
+        hl.vpcs.add(sel.id);
+        infraMapData.subnetList.filter((s: any) => s.vpc_id === sel.id).forEach((s: any) => hl.subnets.add(s.id));
+        infraMapData.ec2s.filter((e: any) => e.vpc_id === sel.id).forEach((e: any) => hl.ec2s.add(e.instance_id));
+      } else if (sel.type === 'subnet') {
+        hl.subnets.add(sel.id);
+        const s = infraMapData.subnetList.find((s: any) => s.id === sel.id);
+        if (s) hl.vpcs.add(s.vpc_id);
+        infraMapData.ec2s.filter((e: any) => e.subnet_id === sel.id).forEach((e: any) => hl.ec2s.add(e.instance_id));
+      } else if (sel.type === 'ec2') {
+        hl.ec2s.add(sel.id);
+        const e = infraMapData.ec2s.find((e: any) => e.instance_id === sel.id);
+        if (e) { if (e.subnet_id) hl.subnets.add(e.subnet_id); if (e.vpc_id) hl.vpcs.add(e.vpc_id); }
+      } else if (sel.type === 'target') {
+        hl.targets.add(sel.id);
+      }
+    }
+    return hl;
+  }, [infraSearch, infraSelected, infraMapData]);
+
+  const hasInfraHl = infraSearch.length > 0 || infraSelected !== null;
+  const isInfraHl = (type: string, id: string) => {
+    if (type === 'vpc') return infraHl.vpcs.has(id);
+    if (type === 'subnet') return infraHl.subnets.has(id);
+    if (type === 'ec2') return infraHl.ec2s.has(id);
+    if (type === 'target') return infraHl.targets.has(id);
+    return false;
+  };
+  const infraDim = (type: string, id: string) => hasInfraHl && !isInfraHl(type, id);
+  const toggleInfra = (type: string, id: string) => {
+    if (infraSelected?.type === type && infraSelected?.id === id) setInfraSelected(null);
+    else setInfraSelected({ type, id });
+  };
 
   // K8s resource map data / K8s 리소스 맵 데이터
   const k8sMapData = useMemo(() => {
@@ -400,8 +513,20 @@ export default function TopologyPage() {
             Kubernetes
           </button>
         </div>
+        {view === 'infra' && (
+          <div className="flex gap-1 bg-navy-800 rounded-lg border border-navy-600 p-1">
+            <button onClick={() => setInfraMode('map')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${infraMode === 'map' ? 'bg-accent-green/10 text-accent-green' : 'text-gray-400 hover:text-white'}`}>
+              Map View
+            </button>
+            <button onClick={() => setInfraMode('graph')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${infraMode === 'graph' ? 'bg-accent-green/10 text-accent-green' : 'text-gray-400 hover:text-white'}`}>
+              Graph View
+            </button>
+          </div>
+        )}
         <span className="text-xs text-gray-500">
-          {activeNodes.length} nodes, {activeEdges.length} connections
+          {view === 'infra' && infraMode === 'graph' ? `${activeNodes.length} nodes, ${activeEdges.length} connections` : ''}
         </span>
         {loading && <span className="text-xs text-accent-cyan animate-pulse">Loading...</span>}
       </div>
@@ -419,8 +544,8 @@ export default function TopologyPage() {
         ))}
       </div>
 
-      {/* Infrastructure — ReactFlow / 인프라 — ReactFlow */}
-      {view === 'infra' && (
+      {/* Infrastructure — Graph View (ReactFlow) / 인프라 — 그래프 뷰 */}
+      {view === 'infra' && infraMode === 'graph' && (
         <div className="bg-navy-900 rounded-lg border border-navy-600 overflow-hidden" style={{ height: 'calc(100vh - 260px)' }}>
           {activeNodes.length > 0 ? (
             <ReactFlow
@@ -449,6 +574,131 @@ export default function TopologyPage() {
               <p>No resources found. Click refresh to load data.</p>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Infrastructure — Map View / 인프라 — 맵 뷰 */}
+      {view === 'infra' && infraMode === 'map' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-xs">🔍</span>
+              <input type="text" value={infraSearch} onChange={(e) => { setInfraSearch(e.target.value); setInfraSelected(null); }}
+                placeholder="Search EC2, subnet, VPC..."
+                className="bg-navy-800 border border-navy-600 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-200 placeholder-gray-600 w-72 focus:ring-accent-cyan focus:border-accent-cyan focus:outline-none" />
+            </div>
+            {infraSearch && <button onClick={() => setInfraSearch('')} className="text-xs text-gray-500 hover:text-white">Clear search</button>}
+            {infraSelected && (
+              <button onClick={() => setInfraSelected(null)} className="text-xs px-2 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/30">Clear selection</button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-5 gap-4 bg-navy-900 rounded-lg border border-navy-600 p-4" style={{ minHeight: 'calc(100vh - 320px)' }}>
+            {/* Col 1: External / 외부 연결 (IGW, TGW) */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">External ({infraMapData.igws.length + infraMapData.tgws.length})</h3>
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {infraMapData.igws.map((g: any) => {
+                  const id = g.internet_gateway_id;
+                  return (
+                    <div key={id} onClick={() => toggleInfra('target', id)}
+                      className={`rounded-lg border-2 p-2 text-xs font-mono cursor-pointer transition-all ${isInfraHl('target', id) ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('target', id) ? 'border-navy-700 opacity-30' : 'border-accent-cyan/40 bg-accent-cyan/5 hover:border-accent-cyan'}`}>
+                      <p className="text-accent-cyan font-bold">IGW</p>
+                      <p className="text-gray-400">{g.name || id.slice(-11)}</p>
+                    </div>
+                  );
+                })}
+                {infraMapData.tgws.map((t: any) => {
+                  const id = t.transit_gateway_id;
+                  return (
+                    <div key={id} onClick={() => toggleInfra('target', id)}
+                      className={`rounded-lg border-2 p-2 text-xs font-mono cursor-pointer transition-all ${isInfraHl('target', id) ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('target', id) ? 'border-navy-700 opacity-30' : 'border-accent-red/40 bg-accent-red/5 hover:border-accent-red'}`}>
+                      <p className="text-accent-red font-bold">TGW</p>
+                      <p className="text-gray-400">{t.name || id.slice(-11)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Col 2: VPCs */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">VPCs ({infraMapData.vpcList.length})</h3>
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {infraMapData.vpcList.map((v: any) => (
+                  <div key={v.id} onClick={() => toggleInfra('vpc', v.id)}
+                    className={`rounded-lg border p-2 text-xs font-mono cursor-pointer transition-all ${isInfraHl('vpc', v.id) ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('vpc', v.id) ? 'border-navy-700 opacity-30' : 'border-accent-cyan/40 bg-navy-800 hover:border-accent-cyan'}`}>
+                    <p className="text-white font-semibold">{v.name}</p>
+                    <p className="text-accent-cyan">{v.cidr}</p>
+                    <p className="text-gray-600 text-[9px]">{v.id}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Col 3: Subnets */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Subnets ({infraMapData.subnetList.length})</h3>
+              <div className="space-y-1.5 max-h-[65vh] overflow-y-auto pr-1">
+                {infraMapData.subnetList.map((s: any) => (
+                  <div key={s.id} onClick={() => toggleInfra('subnet', s.id)}
+                    className={`rounded-lg border p-2 text-xs font-mono cursor-pointer transition-all ${isInfraHl('subnet', s.id) ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('subnet', s.id) ? 'border-navy-700 opacity-30' : 'border-accent-green/30 bg-navy-800 hover:border-accent-green'}`}>
+                    <div className="flex items-center gap-1">
+                      <span className="w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold bg-accent-green/20 text-accent-green">{(s.az || '').slice(-1).toUpperCase()}</span>
+                      <span className="text-white truncate">{s.name}</span>
+                    </div>
+                    <p className="text-gray-500 pl-5">{s.cidr}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Col 4: Compute (EC2, ELB, RDS) */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Compute ({infraMapData.ec2s.length})</h3>
+              <div className="space-y-1 max-h-[65vh] overflow-y-auto pr-1">
+                {infraMapData.ec2s.map((e: any) => (
+                  <div key={e.instance_id} onClick={() => toggleInfra('ec2', e.instance_id)}
+                    className={`rounded border px-2 py-1 text-[10px] font-mono cursor-pointer transition-all ${isInfraHl('ec2', e.instance_id) ? 'border-accent-cyan ring-1 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('ec2', e.instance_id) ? 'border-navy-700 opacity-20' : 'border-navy-600 bg-navy-800 hover:border-accent-purple'}`}>
+                    <span className="text-accent-purple">{e.name || e.instance_id.slice(-11)}</span>
+                    <span className="text-gray-600 ml-1">{e.instance_type}</span>
+                    <span className={`ml-1 ${e.instance_state === 'running' ? 'text-accent-green' : 'text-accent-red'}`}>●</span>
+                  </div>
+                ))}
+                {infraMapData.elbs.map((lb: any) => (
+                  <div key={lb.name} className="rounded border px-2 py-1 text-[10px] font-mono border-accent-pink/30 bg-navy-800">
+                    <span className="text-accent-pink">{lb.name}</span>
+                    <span className="text-gray-600 ml-1">{lb.lb_type}</span>
+                  </div>
+                ))}
+                {infraMapData.rdss.map((r: any) => (
+                  <div key={r.db_instance_identifier} className="rounded border px-2 py-1 text-[10px] font-mono border-accent-orange/30 bg-navy-800">
+                    <span className="text-accent-orange">{r.db_instance_identifier}</span>
+                    <span className="text-gray-600 ml-1">{r.engine}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Col 5: NAT Gateways */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">NAT ({infraMapData.nats.length})</h3>
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {infraMapData.nats.map((n: any) => {
+                  const id = n.nat_gateway_id;
+                  return (
+                    <div key={id} onClick={() => toggleInfra('target', id)}
+                      className={`rounded-lg border-2 p-2 text-xs font-mono cursor-pointer transition-all ${isInfraHl('target', id) ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : infraDim('target', id) ? 'border-navy-700 opacity-30' : 'border-accent-orange/40 bg-accent-orange/5 hover:border-accent-orange'}`}>
+                      <p className="text-accent-orange font-bold">NAT</p>
+                      <p className="text-gray-400">{n.name || id.slice(-11)}</p>
+                      <p className="text-gray-600 text-[9px]">{n.state}</p>
+                    </div>
+                  );
+                })}
+                {infraMapData.nats.length === 0 && <p className="text-gray-600 text-xs">No NAT GWs</p>}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
