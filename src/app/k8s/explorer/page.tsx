@@ -53,10 +53,7 @@ function parseMiB(mem: any): number {
   return Math.round(v);
 }
 
-function formatMem(mib: number): string {
-  if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
-  return `${Math.round(mib)} MiB`;
-}
+// formatMem used by K9sClusterHeader via memory_capacity field
 
 const tabConfig: Record<string, { query: string; label: string; columns: { key: string; label: string }[] }> = {
   pods: {
