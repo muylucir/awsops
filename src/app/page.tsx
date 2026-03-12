@@ -23,6 +23,8 @@ import { queries as dynamoQ } from '@/lib/queries/dynamodb';
 import { queries as costQ } from '@/lib/queries/cost';
 import { queries as k8sQ } from '@/lib/queries/k8s';
 import { queries as secQ } from '@/lib/queries/security';
+import { queries as ecacheQ } from '@/lib/queries/elasticache';
+import { queries as ctQ } from '@/lib/queries/cloudtrail';
 
 interface DashboardData {
   [key: string]: { rows: Record<string, unknown>[]; error?: string };
@@ -68,6 +70,8 @@ export default function DashboardPage() {
             k8sPods: k8sQ.podSummary,
             k8sDeploy: k8sQ.deploymentSummary,
             secSummary: secQ.summary,
+            ecacheSummary: ecacheQ.summary,
+            ctSummary: ctQ.summary,
             k8sWarnings: k8sQ.warningEvents,
           },
         }),
@@ -96,8 +100,26 @@ export default function DashboardPage() {
   const k8sNodes = getFirst('k8sNodes') as any;
   const k8sDeploy = getFirst('k8sDeploy') as any;
   const sec = getFirst('secSummary') as any;
+  const ecache = getFirst('ecacheSummary') as any;
+  const ct = getFirst('ctSummary') as any;
   const podSum = getFirst('k8sPods') as any;
   const totalPods = Number(podSum?.total_pods) || 0;
+
+  // CIS benchmark cached result / CIS 벤치마크 캐시 결과
+  const [cisSummary, setCisSummary] = useState<any>(null);
+  useEffect(() => {
+    fetch('/awsops/api/benchmark?benchmark=cis_v300&action=status')
+      .then(r => r.json())
+      .then(s => {
+        if (s.hasResult && s.status === 'done') {
+          fetch('/awsops/api/benchmark?benchmark=cis_v300&action=result')
+            .then(r => r.json())
+            .then(d => { if (!d.error) setCisSummary(d.summary?.status); })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Security issues / 보안 이슈 합산
   const pubBuckets = Number(sec?.public_buckets) || 0;
@@ -134,66 +156,69 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6 animate-fade-in">
       <Header title="AWSops Dashboard" subtitle="AWS + Kubernetes Resource Overview" onRefresh={() => fetchData(true)} />
 
-      {/* Row 1: Compute + Containers (사이드바: Compute + Kubernetes) */}
+      {/* Row 1: Compute & Containers / 컴퓨팅 & 컨테이너 */}
       <div>
         <h2 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Compute & Containers</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <CardLink href="/ec2">
             <StatsCard label="EC2" value={totalEC2} icon={Server} color="cyan"
-              change={running ? `${running.value} running` : undefined} />
+              change={[running ? `${running.value} running` : '', `${Number(ec2States.find((r: any) => r.name === 'stopped')?.value) || 0} stopped`, `${Number(lambda?.total_functions) ? '' : ''}${Number(vpc?.security_group_count) || 0} SGs`].filter(Boolean).slice(0, 2).join(' · ')} />
           </CardLink>
           <CardLink href="/lambda">
             <StatsCard label="Lambda" value={Number(lambda?.total_functions) || 0} icon={Zap} color="purple"
-              change={`${Number(lambda?.unique_runtimes) || 0} runtimes`} />
+              change={`${Number(lambda?.unique_runtimes) || 0} runtimes · ${Number(lambda?.long_timeout_functions) || 0} long timeout`} />
           </CardLink>
           <CardLink href="/ecs">
-            <StatsCard label="ECS" value={Number(ecs?.total_tasks) || 0} icon={Container} color="orange"
-              change={`${Number(ecs?.total_clusters) || 0} clusters`} />
+            <StatsCard label="ECS Tasks" value={Number(ecs?.total_tasks) || 0} icon={Container} color="orange"
+              change={`${Number(ecs?.total_clusters) || 0} clusters · ${Number(ecs?.total_services) || 0} services`} />
           </CardLink>
           <CardLink href="/k8s">
             <StatsCard label="K8s Nodes" value={Number(k8sNodes?.total_nodes) || 0} icon={Box} color="pink"
-              change={`${Number(k8sNodes?.ready_nodes) || 0} ready`} />
+              change={`${Number(k8sNodes?.ready_nodes) || 0} ready · ${totalPods} pods`} />
           </CardLink>
           <CardLink href="/k8s">
             <StatsCard label="K8s Pods" value={totalPods} icon={Box} color="green"
-              change={`${Number(podSum?.running_pods) || 0} running`} />
+              change={`${Number(podSum?.running_pods) || 0} running · ${Number(podSum?.pending_pods) || 0} pending · ${Number(podSum?.failed_pods) || 0} failed`} />
           </CardLink>
           <CardLink href="/k8s">
             <StatsCard label="Deployments" value={Number(k8sDeploy?.total_deployments) || 0} icon={Box} color="cyan"
-              change={`${Number(k8sDeploy?.fully_available) || 0} available`} />
+              change={`${Number(k8sDeploy?.fully_available) || 0} available · ${Number(k8sDeploy?.partially_available) || 0} partial`} />
           </CardLink>
         </div>
       </div>
 
-      {/* Row 2: Network + Database + Storage (사이드바: Network + Database) */}
+      {/* Row 2: Network & Data / 네트워크 & 데이터 */}
       <div>
         <h2 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Network & Data</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <CardLink href="/vpc">
             <StatsCard label="VPCs" value={Number(vpc?.vpc_count) || 0} icon={Network} color="orange"
-              change={`${vpc?.subnet_count || 0} Subnets`} />
+              change={`${vpc?.subnet_count || 0} Subnets · ${Number(vpc?.nat_gateway_count) || 0} NAT GW · ${Number(vpc?.tgw_count) || 0} TGW`} />
           </CardLink>
           <CardLink href="/vpc">
-            <StatsCard label="Security Groups" value={Number(vpc?.security_group_count) || 0} icon={Shield} color="cyan" />
+            <StatsCard label="Security Groups" value={Number(vpc?.security_group_count) || 0} icon={Shield} color="cyan"
+              change={`${Number(vpc?.alb_count) || 0} ALB · ${Number(vpc?.nlb_count) || 0} NLB`} />
           </CardLink>
           <CardLink href="/rds">
             <StatsCard label="RDS" value={Number(rds?.total_instances) || 0} icon={Database} color="green"
-              change={`${Number(rds?.total_storage_gb) || 0} GB`} />
+              change={`${Number(rds?.total_storage_gb) || 0} GB · ${Number(rds?.multi_az_count) || 0} Multi-AZ`} />
           </CardLink>
           <CardLink href="/dynamodb">
-            <StatsCard label="DynamoDB" value={Number(dynamo?.total_tables) || 0} icon={Table} color="purple" />
+            <StatsCard label="DynamoDB" value={Number(dynamo?.total_tables) || 0} icon={Table} color="purple"
+              change={Number(dynamo?.total_tables) > 0 ? 'On-demand tables' : undefined} />
           </CardLink>
           <CardLink href="/elasticache">
-            <StatsCard label="ElastiCache" value={Number(dynamo?.total_tables) !== undefined ? '--' : '--'} icon={Database} color="orange" />
+            <StatsCard label="ElastiCache" value={Number(ecache?.total_clusters) || 0} icon={Database} color="orange"
+              change={`${Number(ecache?.redis_count) || 0} Redis · ${Number(ecache?.memcached_count) || 0} Memcached · ${Number(ecache?.total_nodes) || 0} nodes`} />
           </CardLink>
           <CardLink href="/s3">
             <StatsCard label="S3 Buckets" value={Number(s3?.total_buckets) || 0} icon={Database} color="green"
-              change={pubBuckets > 0 ? `${pubBuckets} public!` : undefined} />
+              change={pubBuckets > 0 ? `${pubBuckets} public! · ${Number(s3?.total_buckets) - pubBuckets} private` : `All private`} />
           </CardLink>
         </div>
       </div>
 
-      {/* Row 3: Security + Monitoring + Cost (사이드바: Security & Cost + Monitoring) */}
+      {/* Row 3: Security, Monitoring & Cost / 보안, 모니터링 & 비용 */}
       <div>
         <h2 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Security, Monitoring & Cost</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -204,20 +229,32 @@ export default function DashboardPage() {
           </CardLink>
           <CardLink href="/iam">
             <StatsCard label="IAM Users" value={Number(iam?.total_users) || 0} icon={Shield} color="purple"
-              change={Number(iam?.mfa_not_enabled) > 0 ? `${iam.mfa_not_enabled} no MFA` : undefined} />
+              change={`${Number(iam?.total_roles) || 0} roles · ${Number(iam?.total_groups) || 0} groups${Number(iam?.mfa_not_enabled) > 0 ? ` · ${iam.mfa_not_enabled} no MFA` : ''}`} />
           </CardLink>
           <CardLink href="/cloudwatch">
             <StatsCard label="CW Alarms" value={Number(cw?.alarm_count) || 0} icon={Bell}
               color={Number(cw?.alarm_count) > 0 ? 'red' : 'green'}
-              change={Number(cw?.alarm_count) > 0 ? 'Active alarms' : '✓ No alarms'} />
+              change={`${Number(cw?.metric_count) || 0} metrics · ${Number(cw?.log_group_count) || 0} log groups`} />
           </CardLink>
           <CardLink href="/cloudtrail">
-            <StatsCard label="CloudTrail" value="Active" icon={FileSearch} color="cyan"
-              change="API audit logs" />
+            <StatsCard label="CloudTrail" value={`${Number(ct?.total_trails) || 0} Trails`} icon={FileSearch} color="cyan"
+              change={`${Number(ct?.active_trails) || 0} active · ${Number(ct?.multi_region_trails) || 0} multi-region · ${Number(ct?.log_validated_trails) || 0} validated`} />
           </CardLink>
           <CardLink href="/compliance">
-            <StatsCard label="CIS Compliance" value="Scan" icon={ShieldCheck} color="purple"
-              change="Run benchmark" />
+            {(() => {
+              const cisOk = Number(cisSummary?.ok) || 0;
+              const cisAlarm = Number(cisSummary?.alarm) || 0;
+              const cisSkip = Number(cisSummary?.skip) || 0;
+              const cisTotal = cisOk + cisAlarm + cisSkip;
+              const passRate = cisTotal > 0 ? ((cisOk / cisTotal) * 100).toFixed(0) : null;
+              return (
+                <StatsCard label="CIS Compliance"
+                  value={passRate ? `${passRate}%` : 'Not scanned'}
+                  icon={ShieldCheck}
+                  color={passRate ? (Number(passRate) >= 80 ? 'green' : Number(passRate) >= 50 ? 'orange' : 'red') : 'purple'}
+                  change={passRate ? `${cisOk} pass · ${cisAlarm} alarm · ${cisSkip} skip` : 'Run CIS benchmark'} />
+              );
+            })()}
           </CardLink>
           <CardLink href="/cost">
             <StatsCard label="Monthly Cost" value={cost?.total_cost ? `$${Number(cost.total_cost).toLocaleString()}` : '$--'}
