@@ -170,7 +170,14 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
-      <Header title="AWSops Dashboard" subtitle="AWS + Kubernetes Resource Overview" onRefresh={() => fetchData(true)} />
+      <Header title="AWSops Dashboard" onRefresh={() => fetchData(true)} />
+
+      {/* Loading progress bar / 로딩 프로그레스 바 */}
+      {loading && (
+        <div className="w-full h-1 bg-navy-700 rounded-full overflow-hidden">
+          <div className="h-full bg-accent-cyan rounded-full animate-pulse" style={{ width: '60%' }} />
+        </div>
+      )}
 
       {/* Row 1: Compute & Containers (6) / 컴퓨팅 & 컨테이너 */}
       <div>
