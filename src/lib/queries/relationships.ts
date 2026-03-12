@@ -100,6 +100,26 @@ export const queries = {
     FROM kubernetes_pod
     WHERE phase = 'Running'
     ORDER BY node_name, namespace
-    LIMIT 100
+    LIMIT 200
+  `,
+
+  // K8s Services / K8s 서비스
+  k8sServices: `
+    SELECT
+      name, namespace, type, cluster_ip,
+      selector::text AS selector
+    FROM kubernetes_service
+    ORDER BY namespace, name
+  `,
+
+  // K8s Ingress / K8s 인그레스
+  k8sIngress: `
+    SELECT
+      name, namespace,
+      ingress_class_name,
+      rules::text AS rules,
+      status_load_balancer::text AS load_balancer
+    FROM kubernetes_ingress
+    ORDER BY namespace, name
   `,
 };

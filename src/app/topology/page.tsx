@@ -68,6 +68,7 @@ export default function TopologyPage() {
   const [data, setData] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'infra' | 'k8s'>('infra');
+  const [k8sSearch, setK8sSearch] = useState('');
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -85,6 +86,8 @@ export default function TopologyPage() {
             tgw: relQ.tgwRelations,
             rds: relQ.rdsRelations,
             k8s: relQ.eksNodes,
+            k8sSvc: relQ.k8sServices,
+            k8sIng: relQ.k8sIngress,
           },
         }),
       });
@@ -219,49 +222,88 @@ export default function TopologyPage() {
     return { nodes, edges };
   }, [data]);
 
-  const { nodes: k8sNodes, edges: k8sEdges } = useMemo(() => {
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+  // K8s resource map data / K8s 리소스 맵 데이터
+  const k8sMapData = useMemo(() => {
     const pods = get('k8s');
+    const services = get('k8sSvc');
+    const ingresses = get('k8sIng');
 
-    const nodeMap: Record<string, number> = {};
-    let nodeIdx = 0;
-    pods.forEach((p: any) => {
-      if (p.node_name && !(p.node_name in nodeMap)) {
-        nodeMap[p.node_name] = nodeIdx++;
-      }
-    });
-
-    // K8s nodes
-    Object.entries(nodeMap).forEach(([name, idx]) => {
-      nodes.push(makeNode(`node-${name}`, name.split('.')[0], 'k8s_node', 0, idx * 250, 'Node'));
-    });
-
-    // Pods grouped by node
+    // Pod → Node mapping
     const podsByNode: Record<string, any[]> = {};
     pods.forEach((p: any) => {
       if (!p.node_name) return;
-      podsByNode[p.node_name] = podsByNode[p.node_name] || [];
+      if (!podsByNode[p.node_name]) podsByNode[p.node_name] = [];
       podsByNode[p.node_name].push(p);
     });
 
-    Object.entries(podsByNode).forEach(([nodeName, nodePods]) => {
-      const nodeY = (nodeMap[nodeName] || 0) * 250;
-      nodePods.forEach((p: any, i: number) => {
-        const id = `pod-${p.name}`;
-        const col = Math.floor(i / 8);
-        const row = i % 8;
-        nodes.push(makeNode(id, p.name.slice(0, 20), 'k8s_pod', 250 + col * 180, nodeY + row * 50 - 100,
-          `${p.namespace} ${p.pod_ip || ''}`));
-        edges.push(makeEdge(`node-${nodeName}`, id));
-      });
+    // Service → Pods mapping via selector labels
+    const svcToPods: Record<string, string[]> = {};
+    services.forEach((svc: any) => {
+      const sel = (() => { try { return JSON.parse(svc.selector || '{}'); } catch { return {}; } })();
+      const selKeys = Object.entries(sel);
+      if (selKeys.length === 0) return;
+      const matchingPods = pods.filter((p: any) => {
+        // Simple label match: check if pod name contains app label value
+        return selKeys.some(([, v]) => p.name?.includes(String(v)));
+      }).map((p: any) => p.name);
+      svcToPods[`${svc.namespace}/${svc.name}`] = matchingPods;
     });
 
-    return { nodes, edges };
+    // Ingress → Services mapping via rules
+    const ingToSvc: Record<string, string[]> = {};
+    ingresses.forEach((ing: any) => {
+      const rules = (() => { try { return JSON.parse(ing.rules || '[]'); } catch { return []; } })();
+      const svcs: string[] = [];
+      rules.forEach((rule: any) => {
+        (rule.Http?.Paths || rule.http?.paths || []).forEach((path: any) => {
+          const svcName = path.Backend?.Service?.Name || path.backend?.service?.name;
+          if (svcName) svcs.push(`${ing.namespace}/${svcName}`);
+        });
+      });
+      ingToSvc[`${ing.namespace}/${ing.name}`] = svcs;
+    });
+
+    return { pods, services, ingresses, podsByNode, svcToPods, ingToSvc };
   }, [data]);
 
-  const activeNodes = view === 'infra' ? infraNodes : k8sNodes;
-  const activeEdges = view === 'infra' ? infraEdges : k8sEdges;
+  // Search highlight for K8s / K8s 검색 하이라이트
+  const k8sHighlight = useMemo(() => {
+    if (!k8sSearch) return { pods: new Set<string>(), nodes: new Set<string>(), svcs: new Set<string>(), ings: new Set<string>() };
+    const lower = k8sSearch.toLowerCase();
+    const hlPods = new Set<string>();
+    const hlNodes = new Set<string>();
+    const hlSvcs = new Set<string>();
+    const hlIngs = new Set<string>();
+
+    k8sMapData.pods.forEach((p: any) => {
+      if (p.name?.toLowerCase().includes(lower) || p.namespace?.toLowerCase().includes(lower)) {
+        hlPods.add(p.name);
+        if (p.node_name) hlNodes.add(p.node_name);
+      }
+    });
+    // Highlight services that match or have matching pods
+    Object.entries(k8sMapData.svcToPods).forEach(([svcKey, podNames]) => {
+      if (svcKey.toLowerCase().includes(lower) || podNames.some(p => hlPods.has(p))) {
+        hlSvcs.add(svcKey);
+        podNames.forEach(p => { hlPods.add(p); });
+      }
+    });
+    // Highlight ingresses that match or have matching services
+    Object.entries(k8sMapData.ingToSvc).forEach(([ingKey, svcKeys]) => {
+      if (ingKey.toLowerCase().includes(lower) || svcKeys.some(s => hlSvcs.has(s))) {
+        hlIngs.add(ingKey);
+      }
+    });
+    // Also highlight nodes for highlighted pods
+    k8sMapData.pods.forEach((p: any) => { if (hlPods.has(p.name) && p.node_name) hlNodes.add(p.node_name); });
+
+    return { pods: hlPods, nodes: hlNodes, svcs: hlSvcs, ings: hlIngs };
+  }, [k8sSearch, k8sMapData]);
+
+  const hasK8sSearch = k8sSearch.length > 0;
+
+  const activeNodes = view === 'infra' ? infraNodes : [];
+  const activeEdges = view === 'infra' ? infraEdges : [];
 
   return (
     <div className="p-6 space-y-4 animate-fade-in">
@@ -288,7 +330,7 @@ export default function TopologyPage() {
       <div className="flex flex-wrap gap-3">
         {(view === 'infra'
           ? [['vpc','VPC'],['subnet','Subnet'],['ec2','EC2'],['elb','ELB'],['rds','RDS'],['nat','NAT'],['igw','IGW'],['tgw','TGW']]
-          : [['k8s_node','Node'],['k8s_pod','Pod']]
+          : [['igw','Ingress'],['nat','Service'],['k8s_pod','Pod'],['k8s_node','Node']]
         ).map(([type, label]) => (
           <div key={type} className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm border" style={{ borderColor: NODE_COLORS[type], background: NODE_COLORS[type] + '20' }} />
@@ -297,35 +339,141 @@ export default function TopologyPage() {
         ))}
       </div>
 
-      <div className="bg-navy-900 rounded-lg border border-navy-600 overflow-hidden" style={{ height: 'calc(100vh - 260px)' }}>
-        {activeNodes.length > 0 ? (
-          <ReactFlow
-            nodes={activeNodes}
-            edges={activeEdges}
-            connectionLineType={ConnectionLineType.SmoothStep}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            minZoom={0.1}
-            maxZoom={2}
-            defaultEdgeOptions={{ animated: false }}
-          >
-            <Background color="#1a2540" gap={20} />
-            <Controls style={{ button: { background: '#0f1629', color: '#e5e7eb', border: '1px solid #1a2540' } } as any} />
-            <MiniMap
-              nodeColor={(n) => {
-                const type = n.id.split('-')[0];
-                return NODE_COLORS[type] || '#6b7280';
-              }}
-              maskColor="rgba(10, 14, 26, 0.8)"
-              style={{ background: '#0f1629', border: '1px solid #1a2540' }}
-            />
-          </ReactFlow>
-        ) : !loading ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <p>No resources found. Click refresh to load data.</p>
+      {/* Infrastructure — ReactFlow / 인프라 — ReactFlow */}
+      {view === 'infra' && (
+        <div className="bg-navy-900 rounded-lg border border-navy-600 overflow-hidden" style={{ height: 'calc(100vh - 260px)' }}>
+          {activeNodes.length > 0 ? (
+            <ReactFlow
+              nodes={activeNodes}
+              edges={activeEdges}
+              connectionLineType={ConnectionLineType.SmoothStep}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              minZoom={0.1}
+              maxZoom={2}
+              defaultEdgeOptions={{ animated: false }}
+            >
+              <Background color="#1a2540" gap={20} />
+              <Controls style={{ button: { background: '#0f1629', color: '#e5e7eb', border: '1px solid #1a2540' } } as any} />
+              <MiniMap
+                nodeColor={(n) => {
+                  const type = n.id.split('-')[0];
+                  return NODE_COLORS[type] || '#6b7280';
+                }}
+                maskColor="rgba(10, 14, 26, 0.8)"
+                style={{ background: '#0f1629', border: '1px solid #1a2540' }}
+              />
+            </ReactFlow>
+          ) : !loading ? (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              <p>No resources found. Click refresh to load data.</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Kubernetes — Resource Map / K8s — 리소스 맵 */}
+      {view === 'k8s' && (
+        <div className="space-y-4">
+          {/* Search / 검색 */}
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-xs">🔍</span>
+              <input type="text" value={k8sSearch} onChange={(e) => setK8sSearch(e.target.value)}
+                placeholder="Search pods, services... (e.g. carts)"
+                className="bg-navy-800 border border-navy-600 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-200 placeholder-gray-600 w-72 focus:ring-accent-cyan focus:border-accent-cyan focus:outline-none" />
+            </div>
+            {hasK8sSearch && (
+              <>
+                <button onClick={() => setK8sSearch('')} className="text-xs text-gray-500 hover:text-white">Clear</button>
+                <span className="text-xs text-accent-cyan">
+                  {k8sHighlight.pods.size} pods · {k8sHighlight.svcs.size} services · {k8sHighlight.nodes.size} nodes
+                </span>
+              </>
+            )}
           </div>
-        ) : null}
-      </div>
+
+          {/* 4-Column Resource Map / 4컬럼 리소스 맵 */}
+          <div className="grid grid-cols-4 gap-4 bg-navy-900 rounded-lg border border-navy-600 p-4" style={{ minHeight: 'calc(100vh - 320px)' }}>
+            {/* Col 1: Ingress / 인그레스 */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Ingress ({k8sMapData.ingresses.length})</h3>
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {k8sMapData.ingresses.length === 0 ? <p className="text-gray-600 text-xs">No ingresses</p> :
+                  k8sMapData.ingresses.map((ing: any) => {
+                    const key = `${ing.namespace}/${ing.name}`;
+                    const hl = hasK8sSearch && k8sHighlight.ings.has(key);
+                    const dim = hasK8sSearch && !hl;
+                    return (
+                      <div key={key} className={`rounded-lg border p-2 text-xs font-mono transition-all ${hl ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : dim ? 'border-navy-700 opacity-30' : 'border-accent-pink/40 bg-accent-pink/5'}`}>
+                        <p className="text-white font-semibold">{ing.name}</p>
+                        <p className="text-gray-500">{ing.namespace} · {ing.ingress_class_name || 'default'}</p>
+                        {(() => { try { const lb = JSON.parse(ing.load_balancer || '{}'); const ings = lb.Ingress || lb.ingress || []; return ings.length > 0 ? <p className="text-accent-pink text-[9px] mt-0.5 truncate">{ings[0].Hostname || ings[0].hostname || ings[0].IP || ings[0].ip}</p> : null; } catch { return null; } })()}
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            </div>
+
+            {/* Col 2: Services / 서비스 */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Services ({k8sMapData.services.length})</h3>
+              <div className="space-y-1.5 max-h-[65vh] overflow-y-auto pr-1">
+                {k8sMapData.services.map((svc: any) => {
+                  const key = `${svc.namespace}/${svc.name}`;
+                  const hl = hasK8sSearch && k8sHighlight.svcs.has(key);
+                  const dim = hasK8sSearch && !hl;
+                  const podCount = (k8sMapData.svcToPods[key] || []).length;
+                  return (
+                    <div key={key} className={`rounded-lg border p-2 text-xs font-mono transition-all ${hl ? 'border-accent-cyan ring-2 ring-accent-cyan/50 bg-accent-cyan/10' : dim ? 'border-navy-700 opacity-30' : 'border-accent-orange/30 bg-navy-800'}`}>
+                      <div className="flex justify-between"><span className="text-white">{svc.name}</span><span className="text-gray-600">{svc.type}</span></div>
+                      <p className="text-gray-500">{svc.namespace} · {svc.cluster_ip} · {podCount} pods</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Col 3: Pods (grouped by namespace) / 파드 (네임스페이스별) */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Pods ({k8sMapData.pods.length})</h3>
+              <div className="space-y-1 max-h-[65vh] overflow-y-auto pr-1">
+                {k8sMapData.pods.map((p: any) => {
+                  const hl = hasK8sSearch && k8sHighlight.pods.has(p.name);
+                  const dim = hasK8sSearch && !hl;
+                  return (
+                    <div key={p.name} className={`rounded border px-2 py-1 text-[10px] font-mono transition-all ${hl ? 'border-accent-cyan ring-1 ring-accent-cyan/50 bg-accent-cyan/10' : dim ? 'border-navy-700 opacity-20' : 'border-navy-600 bg-navy-800'}`}>
+                      <span className="text-white">{p.name.length > 30 ? p.name.slice(0, 28) + '..' : p.name}</span>
+                      <span className="text-gray-600 ml-1">{p.namespace}</span>
+                      <span className="text-gray-700 ml-1">{p.node_name?.split('.')[0]?.slice(-12)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Col 4: Nodes / 노드 */}
+            <div>
+              <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Nodes ({Object.keys(k8sMapData.podsByNode).length})</h3>
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {Object.entries(k8sMapData.podsByNode).map(([nodeName, nodePods]: [string, any]) => {
+                  const hl = hasK8sSearch && k8sHighlight.nodes.has(nodeName);
+                  const dim = hasK8sSearch && !hl;
+                  const hlPodCount = hasK8sSearch ? (nodePods as any[]).filter((p: any) => k8sHighlight.pods.has(p.name)).length : 0;
+                  return (
+                    <div key={nodeName} className={`rounded-lg border p-2 text-xs font-mono transition-all ${hl ? 'border-accent-green ring-2 ring-accent-green/50 bg-accent-green/10' : dim ? 'border-navy-700 opacity-30' : 'border-accent-green/30 bg-navy-800'}`}>
+                      <p className="text-accent-green font-semibold">{nodeName.split('.')[0]}</p>
+                      <p className="text-gray-500">{(nodePods as any[]).length} pods{hlPodCount > 0 ? ` · ${hlPodCount} matched` : ''}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
