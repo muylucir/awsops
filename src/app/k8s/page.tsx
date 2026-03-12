@@ -81,6 +81,36 @@ export default function K8sOverviewPage() {
   const [selectedVpcs, setSelectedVpcs] = useState<Set<string>>(new Set());
   const [showFilter, setShowFilter] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [nodeEnis, setNodeEnis] = useState<any[]>([]);
+  const [eniLoading, setEniLoading] = useState(false);
+
+  // Fetch ENI data for selected node / 선택된 노드의 ENI 데이터 조회
+  const fetchNodeEnis = useCallback(async (nodeName: string) => {
+    setEniLoading(true);
+    try {
+      // Extract IP pattern from node name (ip-10-11-90-116 → ip-10-11-90-116%)
+      const ipPrefix = nodeName.split('.')[0];
+      const sql = `SELECT network_interface_id, status, interface_type, private_ip_address::text AS primary_ip, attachment_status, private_ip_addresses::text AS all_ips FROM aws_ec2_network_interface WHERE attached_instance_id IN (SELECT instance_id FROM aws_ec2_instance WHERE private_dns_name LIKE '${ipPrefix}%')`;
+      const res = await fetch('/awsops/api/steampipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queries: { enis: sql } }),
+      });
+      const result = await res.json();
+      setNodeEnis(result.enis?.rows || []);
+    } catch {
+      setNodeEnis([]);
+    } finally {
+      setEniLoading(false);
+    }
+  }, []);
+
+  // Select node + fetch ENIs / 노드 선택 + ENI 조회
+  const selectNode = useCallback((nodeName: string) => {
+    setSelectedNode(nodeName);
+    setNodeEnis([]);
+    fetchNodeEnis(nodeName);
+  }, [fetchNodeEnis]);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -279,11 +309,11 @@ export default function K8sOverviewPage() {
               </div>
             </div>
 
-            {/* Network / Info Card */}
+            {/* Pod Info Card / Pod 정보 카드 */}
             <div className="bg-navy-800 border border-navy-600 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
-                <Wifi size={16} className="text-accent-orange" />
-                <h3 className="text-sm font-semibold text-white">Network & Info</h3>
+                <Box size={16} className="text-accent-green" />
+                <h3 className="text-sm font-semibold text-white">Pod Info</h3>
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between"><span className="text-gray-500">Pod CIDR</span><span className="text-white font-mono">{node.pod_cidr || '--'}</span></div>
@@ -294,6 +324,64 @@ export default function K8sOverviewPage() {
                 <div className="flex justify-between"><span className="text-gray-500">Created</span><span className="text-white font-mono">{node.creation_timestamp ? new Date(node.creation_timestamp).toLocaleDateString() : '--'}</span></div>
               </div>
             </div>
+          </div>
+
+          {/* ENI (Network Interfaces) / ENI 네트워크 인터페이스 */}
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+              <Wifi size={18} className="text-accent-orange" />
+              Network Interfaces (ENI)
+              {!eniLoading && <span className="text-xs text-gray-500 font-normal ml-2">{nodeEnis.length} ENIs</span>}
+            </h2>
+            {eniLoading ? (
+              <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-20 skeleton rounded" />)}</div>
+            ) : nodeEnis.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {nodeEnis.map((eni: any) => {
+                  let ips: any[] = [];
+                  try { ips = JSON.parse(eni.all_ips || '[]'); } catch {}
+                  const totalSlots = ips.length;
+                  const secondaryIps = ips.filter((ip: any) => !ip.Primary);
+                  // Max IPs per ENI depends on instance type, use actual count as capacity hint
+                  return (
+                    <div key={eni.network_interface_id} className="bg-navy-800 border border-navy-600 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-accent-orange font-mono text-xs">{eni.network_interface_id}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${eni.status === 'in-use' ? 'bg-accent-green/15 text-accent-green' : 'bg-gray-700 text-gray-400'}`}>{eni.status}</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs mb-3">
+                        <div className="flex justify-between"><span className="text-gray-500">Primary IP</span><span className="text-white font-mono">{eni.primary_ip}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="text-white font-mono">{eni.interface_type}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">IPs Allocated</span><span className="text-accent-cyan font-mono">{totalSlots} ({secondaryIps.length} secondary)</span></div>
+                      </div>
+                      {/* IP usage bar / IP 사용량 바 */}
+                      <div className="mb-2">
+                        <div className="flex items-center justify-between text-[10px] mb-1">
+                          <span className="text-gray-500">IP Slots Used</span>
+                          <span className="text-white font-mono">{totalSlots} / 15</span>
+                        </div>
+                        <div className="h-2.5 bg-navy-900 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${totalSlots >= 14 ? 'bg-accent-red' : totalSlots >= 10 ? 'bg-accent-orange' : 'bg-accent-cyan'}`} style={{ width: `${Math.min((totalSlots / 15) * 100, 100)}%` }} />
+                        </div>
+                      </div>
+                      {/* Secondary IPs (collapsed) / 세컨더리 IP 목록 */}
+                      <details className="mt-2">
+                        <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-300">Show {secondaryIps.length} secondary IPs</summary>
+                        <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5">
+                          {secondaryIps.map((ip: any, i: number) => (
+                            <div key={i} className="text-[10px] font-mono text-gray-400 pl-2 border-l border-navy-600">
+                              {ip.PrivateIpAddress}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No ENI data available</p>
+            )}
           </div>
 
           {/* Pods Table / 파드 테이블 */}
@@ -469,7 +557,7 @@ export default function K8sOverviewPage() {
               return (
                 <div
                   key={node.name}
-                  onClick={() => setSelectedNode(node.name)}
+                  onClick={() => selectNode(node.name)}
                   className="bg-navy-800 border border-navy-600 rounded-lg p-4 cursor-pointer transition-all hover:scale-[1.02] hover:border-accent-cyan/50"
                 >
                   <div className="flex items-center justify-between mb-3">
