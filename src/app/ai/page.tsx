@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import Header from '@/components/layout/Header';
 import { Send, Bot, User, Loader2, Sparkles, Database } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -139,17 +138,24 @@ export default function AIPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Header — same style as EC2/VPC pages / EC2/VPC 페이지와 동일 스타일 */}
-      <div className="p-6 pb-4">
-        <div className="flex items-center justify-between">
-          <Header title="AI Assistant" subtitle="Powered by Amazon Bedrock AgentCore" />
+      {/* Header — matches Dashboard style / 대시보드와 동일 스타일 */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-navy-600 bg-navy-800/80 backdrop-blur-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-white">AI Assistant</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Powered by Amazon Bedrock AgentCore</p>
+        </div>
+        <div className="flex items-center gap-4">
           <select value={model} onChange={(e) => setModel(e.target.value as any)}
             className="bg-navy-900 border border-navy-600 rounded-lg px-3 py-2 text-xs text-gray-300 focus:ring-accent-cyan focus:border-accent-cyan">
             <option value="sonnet-4.6">Claude Sonnet 4.6</option>
             <option value="opus-4.6">Claude Opus 4.6</option>
           </select>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-green/10 text-accent-green border border-accent-green/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+            ONLINE
+          </span>
         </div>
-      </div>
+      </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-4">
