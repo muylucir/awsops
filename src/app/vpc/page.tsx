@@ -20,7 +20,8 @@ export default function VPCPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [tgwRouteTables, setTgwRouteTables] = useState<any[]>([]);
   const [tgwRoutes, setTgwRoutes] = useState<Record<string, any[]>>({});
-  const [vpcMap, setVpcMap] = useState<{ subnets: any[]; routeTables: any[] } | null>(null);
+  const [vpcMap, setVpcMap] = useState<{ subnets: any[]; routeTables: any[]; vpcInfo: any } | null>(null);
+  const [showResourceMap, setShowResourceMap] = useState(false);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -64,27 +65,41 @@ export default function VPCPage() {
     } catch {} finally { setDetailLoading(false); }
   };
 
-  // Fetch VPC detail with resource map / VPC 상세 + 리소스 맵
+  // Fetch VPC detail / VPC 상세
   const fetchVpcDetail = async (vpcId: string) => {
     setDetailLoading(true);
     setDetailType('vpc');
+    try {
+      const sql = vpcQ.vpcDetail.replace('{vpc_id}', vpcId);
+      const res = await fetch('/awsops/api/steampipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queries: { detail: sql } }),
+      });
+      const result = await res.json();
+      if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
+    } catch {} finally { setDetailLoading(false); }
+  };
+
+  // Open VPC Resource Map / VPC 리소스 맵 열기
+  const openResourceMap = async (vpcId: string, cidrBlock: string, vpcName?: string) => {
+    setShowResourceMap(true);
     setVpcMap(null);
     try {
-      const detailSql = vpcQ.vpcDetail.replace('{vpc_id}', vpcId);
       const subnetSql = vpcQ.vpcSubnets.replace('{vpc_id}', vpcId);
       const rtSql = vpcQ.vpcRouteTables.replace('{vpc_id}', vpcId);
       const res = await fetch('/awsops/api/steampipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ queries: { detail: detailSql, subnets: subnetSql, routeTables: rtSql } }),
+        body: JSON.stringify({ queries: { subnets: subnetSql, routeTables: rtSql } }),
       });
       const result = await res.json();
-      if (result.detail?.rows?.[0]) setSelected(result.detail.rows[0]);
       setVpcMap({
         subnets: result.subnets?.rows || [],
         routeTables: result.routeTables?.rows || [],
+        vpcInfo: { vpc_id: vpcId, cidr_block: cidrBlock, name: vpcName },
       });
-    } catch {} finally { setDetailLoading(false); }
+    } catch {}
   };
 
   // Fetch TGW detail with route tables + routes / TGW 상세 + 라우트 테이블 + 라우트
@@ -207,6 +222,12 @@ export default function VPCPage() {
           { key: 'state', label: 'State', render: (v: string) => <StatusBadge status={v || 'unknown'} /> },
           { key: 'is_default', label: 'Default', render: (v: boolean) => v ? 'Yes' : 'No' },
           { key: 'region', label: 'Region' },
+          { key: 'vpc_id', label: '', render: (_v: string, row: any) => (
+            <button onClick={(e) => { e.stopPropagation(); openResourceMap(row.vpc_id, row.cidr_block, row.name); }}
+              className="text-[10px] px-2 py-1 rounded bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/30 hover:bg-accent-cyan/20 transition-colors whitespace-nowrap">
+              Resource Map
+            </button>
+          )},
         ]} data={loading && !vpcs.length ? undefined : vpcs}
            onRowClick={(row) => fetchVpcDetail(row.vpc_id)} />
       )}
@@ -356,108 +377,6 @@ export default function VPCPage() {
                     <Row label="Region" value={selected.region} />
                   </Section>
 
-                  {/* VPC Resource Map / VPC 리소스 맵 트리뷰 */}
-                  {vpcMap && (
-                    <Section title="Resource Map" icon={ArrowRightLeft}>
-                      {(() => {
-                        // Build subnet → route table mapping / 서브넷 → 라우트 테이블 매핑
-                        const rtMap: Record<string, { rt: any; routes: any[] }> = {};
-                        const subnetToRt: Record<string, string> = {};
-                        let mainRtId = '';
-
-                        vpcMap.routeTables.forEach((rt: any) => {
-                          const assocs = parseArray(rt.associations);
-                          const routes = parseArray(rt.routes);
-                          rtMap[rt.route_table_id] = { rt, routes };
-                          assocs.forEach((a: any) => {
-                            if (a.Main || a.main) mainRtId = rt.route_table_id;
-                            const subId = a.SubnetId || a.subnet_id;
-                            if (subId) subnetToRt[subId] = rt.route_table_id;
-                          });
-                        });
-
-                        // Group subnets by AZ / AZ별 서브넷 그룹
-                        const azGroups: Record<string, any[]> = {};
-                        vpcMap.subnets.forEach((s: any) => {
-                          const az = s.availability_zone || 'unknown';
-                          if (!azGroups[az]) azGroups[az] = [];
-                          azGroups[az].push(s);
-                        });
-
-                        const getTarget = (r: any) => {
-                          if (r.GatewayId === 'local' || r.gateway_id === 'local') return { type: 'local', id: 'local', color: 'text-gray-500' };
-                          if (r.GatewayId?.startsWith('igw') || r.gateway_id?.startsWith('igw')) return { type: 'IGW', id: r.GatewayId || r.gateway_id, color: 'text-accent-green' };
-                          if (r.NatGatewayId || r.nat_gateway_id) return { type: 'NAT', id: r.NatGatewayId || r.nat_gateway_id, color: 'text-accent-orange' };
-                          if (r.TransitGatewayId || r.transit_gateway_id) return { type: 'TGW', id: r.TransitGatewayId || r.transit_gateway_id, color: 'text-accent-purple' };
-                          if (r.VpcPeeringConnectionId || r.vpc_peering_connection_id) return { type: 'Peering', id: r.VpcPeeringConnectionId || r.vpc_peering_connection_id, color: 'text-accent-cyan' };
-                          if (r.NetworkInterfaceId || r.network_interface_id) return { type: 'ENI', id: r.NetworkInterfaceId || r.network_interface_id, color: 'text-gray-400' };
-                          return { type: '?', id: '', color: 'text-gray-600' };
-                        };
-
-                        return (
-                          <div className="space-y-1">
-                            {/* VPC root / VPC 루트 */}
-                            <div className="text-sm font-bold text-white">
-                              🏗 {selected.vpc_id} <span className="text-accent-cyan font-normal">{selected.cidr_block}</span>
-                            </div>
-
-                            {Object.entries(azGroups).sort().map(([az, azSubnets]) => (
-                              <div key={az} className="ml-4">
-                                <div className="text-xs text-gray-500 font-mono mt-2 mb-1">📍 {az}</div>
-                                {azSubnets.map((subnet: any) => {
-                                  const rtId = subnetToRt[subnet.subnet_id] || mainRtId;
-                                  const rtData = rtMap[rtId];
-                                  const isPublic = subnet.map_public_ip_on_launch;
-                                  return (
-                                    <div key={subnet.subnet_id} className="ml-4 mb-2">
-                                      {/* Subnet / 서브넷 */}
-                                      <div className="text-xs font-mono flex items-center gap-2">
-                                        <span className={isPublic ? 'text-accent-green' : 'text-accent-cyan'}>
-                                          {isPublic ? '🌐' : '🔒'} {subnet.name || subnet.subnet_id}
-                                        </span>
-                                        <span className="text-gray-500">{subnet.cidr_block}</span>
-                                        <span className="text-gray-600">({subnet.available_ip_address_count} free)</span>
-                                      </div>
-                                      {/* Route Table / 라우트 테이블 */}
-                                      {rtData && (
-                                        <div className="ml-4 mt-0.5">
-                                          <div className="text-[10px] text-gray-500 font-mono">
-                                            📋 {rtData.rt.name || rtId} {rtId === mainRtId && <span className="text-accent-orange">(main)</span>}
-                                          </div>
-                                          <div className="ml-4 space-y-0.5">
-                                            {rtData.routes.filter((r: any) => {
-                                              const t = getTarget(r);
-                                              return t.type !== 'local';
-                                            }).map((r: any, i: number) => {
-                                              const dest = r.DestinationCidrBlock || r.destination_cidr_block || r.DestinationPrefixListId || r.destination_prefix_list_id || '--';
-                                              const t = getTarget(r);
-                                              const state = r.State || r.state || '';
-                                              return (
-                                                <div key={i} className="text-[10px] font-mono flex items-center gap-1">
-                                                  <span className="text-gray-600">{dest}</span>
-                                                  <span className="text-gray-700">→</span>
-                                                  <span className={t.color}>{t.type} {t.id?.slice(-8)}</span>
-                                                  {state === 'blackhole' && <span className="text-accent-red">(blackhole)</span>}
-                                                </div>
-                                              );
-                                            })}
-                                            {/* Local route / 로컬 라우트 */}
-                                            <div className="text-[10px] font-mono text-gray-600">
-                                              {selected.cidr_block} → local
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </Section>
-                  )}
                 </>)}
 
                 {/* Subnet Detail */}
@@ -781,6 +700,177 @@ export default function VPCPage() {
                 )}
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* VPC Resource Map — full screen modal / VPC 리소스 맵 전체 화면 */}
+      {showResourceMap && (
+        <div className="fixed inset-0 z-50 bg-navy-900/95 overflow-auto">
+          <div className="p-6">
+            {/* Header / 헤더 */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-bold text-white font-mono">
+                  {vpcMap?.vpcInfo?.vpc_id} / {vpcMap?.vpcInfo?.name || 'VPC'}
+                </h1>
+                <p className="text-sm text-gray-400 mt-1">Resource Map</p>
+              </div>
+              <button onClick={() => setShowResourceMap(false)}
+                className="px-4 py-2 rounded-lg bg-navy-800 border border-navy-600 text-gray-400 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {!vpcMap ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-20 w-96 skeleton rounded" />)}</div>
+              </div>
+            ) : (() => {
+              // Build data / 데이터 구성
+              const rtMap: Record<string, { rt: any; routes: any[] }> = {};
+              const subnetToRt: Record<string, string> = {};
+              let mainRtId = '';
+              const networkTargets: Record<string, { type: string; id: string }> = {};
+
+              vpcMap.routeTables.forEach((rt: any) => {
+                const assocs = parseArray(rt.associations);
+                const routes = parseArray(rt.routes);
+                rtMap[rt.route_table_id] = { rt, routes };
+                assocs.forEach((a: any) => {
+                  if (a.Main || a.main) mainRtId = rt.route_table_id;
+                  const subId = a.SubnetId || a.subnet_id;
+                  if (subId) subnetToRt[subId] = rt.route_table_id;
+                });
+                routes.forEach((r: any) => {
+                  const gw = r.GatewayId || r.gateway_id;
+                  const nat = r.NatGatewayId || r.nat_gateway_id;
+                  const tgw = r.TransitGatewayId || r.transit_gateway_id;
+                  const peer = r.VpcPeeringConnectionId || r.vpc_peering_connection_id;
+                  if (gw && gw !== 'local') networkTargets[gw] = { type: gw.startsWith('igw') ? 'IGW' : 'Gateway', id: gw };
+                  if (nat) networkTargets[nat] = { type: 'NAT GW', id: nat };
+                  if (tgw) networkTargets[tgw] = { type: 'TGW', id: tgw };
+                  if (peer) networkTargets[peer] = { type: 'Peering', id: peer };
+                });
+              });
+
+              const azGroups: Record<string, any[]> = {};
+              vpcMap.subnets.forEach((s: any) => {
+                const az = s.availability_zone || 'unknown';
+                if (!azGroups[az]) azGroups[az] = [];
+                azGroups[az].push(s);
+              });
+
+              const targetColor = (type: string) => {
+                if (type === 'IGW') return 'border-accent-green text-accent-green';
+                if (type === 'NAT GW') return 'border-accent-orange text-accent-orange';
+                if (type === 'TGW') return 'border-accent-purple text-accent-purple';
+                if (type === 'Peering') return 'border-accent-cyan text-accent-cyan';
+                return 'border-gray-600 text-gray-400';
+              };
+
+              return (
+                <div className="grid grid-cols-4 gap-6 min-h-[400px]">
+                  {/* Column 1: VPC / 컬럼 1: VPC */}
+                  <div>
+                    <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">VPC</h3>
+                    <div className="bg-navy-800 border-2 border-accent-cyan rounded-lg p-4">
+                      <p className="text-sm font-bold text-white">{vpcMap.vpcInfo?.name || vpcMap.vpcInfo?.vpc_id}</p>
+                      <p className="text-xs text-accent-cyan font-mono mt-1">{vpcMap.vpcInfo?.cidr_block}</p>
+                      <p className="text-[10px] text-gray-500 font-mono mt-1">{vpcMap.vpcInfo?.vpc_id}</p>
+                    </div>
+                  </div>
+
+                  {/* Column 2: Subnets / 컬럼 2: 서브넷 */}
+                  <div>
+                    <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Subnets ({vpcMap.subnets.length})</h3>
+                    <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
+                      {Object.entries(azGroups).sort().map(([az, azSubnets]) => (
+                        <div key={az}>
+                          <p className="text-[10px] font-mono text-gray-500 font-bold mb-1">{az}</p>
+                          <div className="space-y-1">
+                            {azSubnets.map((s: any) => {
+                              const isPublic = s.map_public_ip_on_launch;
+                              const rtId = subnetToRt[s.subnet_id] || mainRtId;
+                              return (
+                                <div key={s.subnet_id}
+                                  className={`rounded-lg border p-2 text-xs font-mono ${isPublic ? 'border-accent-green/40 bg-accent-green/5' : 'border-navy-600 bg-navy-800'}`}>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold ${isPublic ? 'bg-accent-green/20 text-accent-green' : 'bg-accent-cyan/20 text-accent-cyan'}`}>
+                                      {az.slice(-1).toUpperCase()}
+                                    </span>
+                                    <span className="text-white truncate">{s.name || s.subnet_id}</span>
+                                  </div>
+                                  <p className="text-gray-500 mt-0.5 pl-6">{s.cidr_block} · {s.available_ip_address_count} free</p>
+                                  {rtId && <p className="text-gray-600 mt-0.5 pl-6 text-[9px]">→ {rtMap[rtId]?.rt?.name || rtId}</p>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Column 3: Route Tables / 컬럼 3: 라우트 테이블 */}
+                  <div>
+                    <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Route Tables ({vpcMap.routeTables.length})</h3>
+                    <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2">
+                      {vpcMap.routeTables.map((rt: any) => {
+                        const routes = parseArray(rt.routes);
+                        const isMain = rt.route_table_id === mainRtId;
+                        return (
+                          <div key={rt.route_table_id} className={`rounded-lg border p-2 text-xs font-mono ${isMain ? 'border-accent-orange/40 bg-accent-orange/5' : 'border-navy-600 bg-navy-800'}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="text-white">{rt.name || rt.route_table_id}</span>
+                              {isMain && <span className="text-[9px] bg-accent-orange/20 text-accent-orange px-1.5 py-0.5 rounded">main</span>}
+                            </div>
+                            <div className="mt-1.5 space-y-0.5">
+                              {routes.map((r: any, i: number) => {
+                                const dest = r.DestinationCidrBlock || r.destination_cidr_block || r.DestinationPrefixListId || r.destination_prefix_list_id || '--';
+                                const gw = r.GatewayId || r.gateway_id;
+                                const nat = r.NatGatewayId || r.nat_gateway_id;
+                                const tgwR = r.TransitGatewayId || r.transit_gateway_id;
+                                const peer = r.VpcPeeringConnectionId || r.vpc_peering_connection_id;
+                                let target = 'local';
+                                let tColor = 'text-gray-600';
+                                if (gw && gw !== 'local') { target = gw.slice(-11); tColor = 'text-accent-green'; }
+                                else if (nat) { target = nat.slice(-11); tColor = 'text-accent-orange'; }
+                                else if (tgwR) { target = tgwR.slice(-11); tColor = 'text-accent-purple'; }
+                                else if (peer) { target = peer.slice(-11); tColor = 'text-accent-cyan'; }
+                                const state = r.State || r.state || '';
+                                return (
+                                  <div key={i} className="flex items-center gap-1 text-[9px]">
+                                    <span className="text-gray-500 w-24 truncate">{dest}</span>
+                                    <span className="text-gray-700">→</span>
+                                    <span className={`${tColor} ${state === 'blackhole' ? 'line-through' : ''}`}>{target}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Column 4: Network Connections / 컬럼 4: 네트워크 연결 */}
+                  <div>
+                    <h3 className="text-xs font-mono uppercase text-gray-400 tracking-wider mb-3">Network Connections ({Object.keys(networkTargets).length})</h3>
+                    <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2">
+                      {Object.values(networkTargets).length === 0 ? (
+                        <p className="text-gray-500 text-xs">No external connections</p>
+                      ) : Object.values(networkTargets).map((t) => (
+                        <div key={t.id} className={`rounded-lg border-2 p-3 text-xs font-mono ${targetColor(t.type)}`}>
+                          <p className="font-bold">{t.type}</p>
+                          <p className="text-gray-400 mt-0.5">{t.id}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
