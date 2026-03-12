@@ -19,7 +19,7 @@ import {
   FileSearch,
   GitBranch,
   Activity,
-  MessageSquare,
+  BrainCircuit,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -39,7 +39,7 @@ const navGroups: NavGroup[] = [
     title: '',
     items: [
       { label: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { label: 'AI Assistant', href: '/ai', icon: MessageSquare },
+      { label: 'AI Assistant', href: '/ai', icon: BrainCircuit },
     ],
   },
   {
