@@ -51,6 +51,22 @@ export const queries = {
       name = '{name}'
   `,
 
+  // IAM roles with S3 access policies / S3 접근 정책이 있는 IAM 역할
+  s3IamRoles: `
+    SELECT
+      name AS role_name,
+      arn AS role_arn,
+      attached_policy_arns::text AS policies
+    FROM
+      aws_iam_role
+    WHERE
+      attached_policy_arns::text LIKE '%S3%'
+      OR attached_policy_arns::text LIKE '%s3%'
+      OR attached_policy_arns::text LIKE '%AdministratorAccess%'
+    ORDER BY name
+    LIMIT 30
+  `,
+
   publicBuckets: `
     SELECT
       name,
