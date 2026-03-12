@@ -195,22 +195,24 @@ function buildClassificationPrompt(): string {
     .join('\n');
 
   return `You are an intent classifier for an AWS operations dashboard.
-Classify the user's question into exactly ONE route. Consider the FULL conversation context, not just the last message.
-Choose the route whose TOOLS can best answer the question.
+Classify the user's question into 1-3 routes. Consider the FULL conversation context, not just the last message.
+Choose the route(s) whose TOOLS can best answer the question.
 
 Routes:
 ${routeDescriptions}
 
 Classification rules:
+- Most questions need only 1 route. Use multiple routes ONLY when the question explicitly asks about different domains.
+- Examples of multi-route: "VPC 보안그룹과 비용을 분석해줘" → ["network", "cost"], "보안 점검하고 IAM 사용자도 확인" → ["security"]
 - If the user asks a follow-up ("그중에서", "그건", "더 자세히"), use PREVIOUS context to determine the route.
-- If the question spans multiple domains, pick the route with the most specific tools.
-- Prefer specialized routes (infra, data, security, monitoring, cost) over general ones (aws-data, general).
-- "aws-data" is ONLY for simple resource listing/counting via SQL. If dedicated tools exist (TGW, EKS, IAM, CloudWatch), use that route instead.
+- Prefer specialized routes (network, container, data, security, monitoring, cost) over general ones (aws-data, general).
+- "aws-data" is ONLY for simple resource listing/counting via SQL. If dedicated tools exist, use that route instead.
+- "code" and "aws-data" should NOT be combined with other routes.
 
 Examples:
 ${examples}
 
-Respond with ONLY a JSON object: {"route": "<route>"}`;
+Respond with ONLY a JSON object: {"routes": ["<route>"]} or {"routes": ["<route1>", "<route2>"]}`;
 }
 
 const CLASSIFICATION_PROMPT = buildClassificationPrompt();
@@ -227,12 +229,12 @@ Respond in the same language as the user's question.`;
 // ============================================================================
 // Intent classification / 의도 분류
 // ============================================================================
-async function classifyIntent(messages: Array<{role: string; content: string}>): Promise<RouteType> {
+async function classifyIntent(messages: Array<{role: string; content: string}>): Promise<RouteType[]> {
   try {
     const recentMessages = messages.slice(-10);
     const body = JSON.stringify({
       anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 50,
+      max_tokens: 100,
       system: CLASSIFICATION_PROMPT,
       messages: recentMessages.map(m => ({ role: m.role, content: m.content })),
     });
@@ -247,17 +249,29 @@ async function classifyIntent(messages: Array<{role: string; content: string}>):
     const result = JSON.parse(new TextDecoder().decode(response.body));
     const text = result.content?.[0]?.text || '';
 
-    const match = text.match(/\{[^}]*"route"\s*:\s*"([^"]+)"[^}]*\}/);
-    if (match && VALID_ROUTES.includes(match[1] as RouteType)) {
-      console.log(`[Intent] Classified as: ${match[1]}`);
-      return match[1] as RouteType;
+    // Parse multi-route: {"routes": ["network", "cost"]} / 멀티 라우트 파싱
+    const multiMatch = text.match(/\{[^}]*"routes"\s*:\s*\[([^\]]+)\][^}]*\}/);
+    if (multiMatch) {
+      const routes = multiMatch[1].match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) || [];
+      const valid = routes.filter(r => VALID_ROUTES.includes(r as RouteType)).slice(0, 3) as RouteType[];
+      if (valid.length > 0) {
+        console.log(`[Intent] Classified as: ${valid.join(', ')}`);
+        return valid;
+      }
+    }
+
+    // Fallback: single route {"route": "xxx"} / 폴백: 단일 라우트
+    const singleMatch = text.match(/\{[^}]*"route"\s*:\s*"([^"]+)"[^}]*\}/);
+    if (singleMatch && VALID_ROUTES.includes(singleMatch[1] as RouteType)) {
+      console.log(`[Intent] Classified as: ${singleMatch[1]}`);
+      return [singleMatch[1] as RouteType];
     }
 
     console.warn(`[Intent] Could not parse: ${text}, fallback to general`);
-    return 'general';
+    return ['general'];
   } catch (err: any) {
     console.error(`[Intent] Failed: ${err.message}, fallback to general`);
-    return 'general';
+    return ['general'];
   }
 }
 
@@ -500,12 +514,18 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Step 1: Classify intent / 1단계: 의도 분류
+        // Step 1: Classify intent (multi-route) / 1단계: 의도 분류 (멀티 라우트)
         send('status', { step: 'classifying', message: '🔍 질문 분석 중...' });
-        const route = await classifyIntent(messages);
+        const routes = await classifyIntent(messages);
+        const route = routes[0];
         const config = ROUTE_REGISTRY[route];
         const lastMessage = messages[messages.length - 1]?.content || '';
-        send('status', { step: 'classified', route, display: config.display, message: `📡 ${config.display} 연결 중...` });
+        const isMulti = routes.length > 1;
+        if (isMulti) {
+          send('status', { step: 'classified', route, routes, message: `📡 멀티 라우트: ${routes.map(r => ROUTE_REGISTRY[r]?.display).join(' + ')}` });
+        } else {
+          send('status', { step: 'classified', route, display: config.display, message: `📡 ${config.display} 연결 중...` });
+        }
 
         // Step 2: Route to handler / 2단계: 핸들러로 라우팅
 
@@ -586,7 +606,44 @@ export async function POST(request: NextRequest) {
           send('status', { step: 'sql-fallback', message: '⚠️ SQL 실패, AgentCore로 전환...' });
         }
 
-        // Handler: AgentCore Gateway / 핸들러: AgentCore 게이트웨이
+        // Handler: AgentCore Gateway — single or multi / AgentCore 게이트웨이 — 단일 또는 멀티
+        if (isMulti) {
+          // Multi-route: parallel calls + synthesis / 멀티 라우트: 병렬 호출 + 합성
+          send('status', { step: 'multi-call', message: `🤖 ${routes.length}개 Gateway 병렬 호출 중...` });
+          const results = await Promise.allSettled(
+            routes.map(r => handleSingleRoute(r, messages, modelKey))
+          );
+          const successful: { route: string; content: string; via: string }[] = [];
+          const allResources: string[] = [];
+          results.forEach((r, i) => {
+            if (r.status === 'fulfilled' && r.value) {
+              successful.push({ route: routes[i], content: r.value.content, via: r.value.via });
+              allResources.push(...r.value.queriedResources);
+            }
+          });
+
+          if (successful.length > 1) {
+            send('status', { step: 'synthesizing', message: `📊 ${successful.length}개 응답 합성 중...` });
+            const lastMsg = messages[messages.length - 1]?.content || '';
+            const synthesized = await synthesizeResponses(lastMsg, successful, modelKey);
+            const viaList = successful.map(s => s.via).join(' + ');
+            send('done', {
+              content: synthesized, model: modelKey || 'sonnet-4.6',
+              via: `Multi-Route: ${viaList}`, queriedResources: allResources, route, routes,
+            });
+          } else if (successful.length === 1) {
+            send('done', {
+              content: successful[0].content, model: modelKey || 'sonnet-4.6',
+              via: successful[0].via, queriedResources: allResources, route, routes,
+            });
+          } else {
+            send('error', { error: 'All routes failed' });
+          }
+          controller.close();
+          return;
+        }
+
+        // Single route: existing logic / 단일 라우트: 기존 로직
         const gateway = config.gateway || 'ops';
         send('status', { step: 'agentcore', message: `🤖 ${config.display} 도구 호출 중...` });
         const agentResponse = await invokeAgentCore(messages, gateway);
@@ -598,7 +655,7 @@ export async function POST(request: NextRequest) {
             .trim();
           send('done', {
             content: cleanedResponse || agentResponse, model: 'sonnet-4.6',
-            via: `AgentCore → ${config.display}`, queriedResources: [`${gateway}-gateway`], route,
+            via: `AgentCore → ${config.display}`, queriedResources: [`${gateway}-gateway`], route, routes,
           });
           controller.close();
           return;
@@ -636,106 +693,176 @@ export async function POST(request: NextRequest) {
 }
 
 // ============================================================================
-// Non-streaming handler (backward compatible) / 비스트리밍 핸들러 (하위 호환)
+// Single route handler / 단일 라우트 핸들러
 // ============================================================================
-async function handleNonStreaming(messages: Array<{role: string; content: string}>, modelKey?: string) {
-  try {
-    const route = await classifyIntent(messages);
-    const config = ROUTE_REGISTRY[route];
-    const lastMessage = messages[messages.length - 1]?.content || '';
+async function handleSingleRoute(
+  route: RouteType, messages: Array<{role: string; content: string}>, modelKey?: string
+): Promise<{ content: string; via: string; queriedResources: string[] } | null> {
+  const config = ROUTE_REGISTRY[route];
+  const lastMessage = messages[messages.length - 1]?.content || '';
 
-    // Code handler / 코드 핸들러
-    if (config.handler === 'code') {
-      const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
-      const codeSystemPrompt = SYSTEM_PROMPT + `\n\nThe user wants to execute code. If they provide code, wrap it in a \`\`\`python code block. If they describe a task, generate Python code to accomplish it and wrap it in a \`\`\`python code block. Always include print statements to show results.`;
-      const body = JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: codeSystemPrompt,
-        messages: messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content })),
-      });
-      const aiResponse = await bedrockClient.send(new InvokeModelCommand({
-        modelId, contentType: 'application/json', accept: 'application/json',
-        body: new TextEncoder().encode(body),
-      }));
-      const aiText = JSON.parse(new TextDecoder().decode(aiResponse.body)).content?.[0]?.text || '';
-      const pythonCode = extractPythonCode(aiText) || extractPythonCode(lastMessage);
-      if (pythonCode) {
-        const codeResult = await executeCodeInterpreter(pythonCode);
-        const executionBlock = `\n\n---\n**Code Execution Result** (exit code: ${codeResult.exitCode}):\n\`\`\`\n${codeResult.output}\n\`\`\``;
-        return NextResponse.json({
-          content: aiText + executionBlock, model: modelKey || 'sonnet-4.6',
-          via: `Bedrock + ${config.display}`, queriedResources: ['code-interpreter'], route,
-        });
-      }
-      return NextResponse.json({
-        content: aiText, model: modelKey || 'sonnet-4.6',
-        via: 'Bedrock (code request)', queriedResources: [], route,
-      });
-    }
-
-    // SQL handler / SQL 핸들러
-    if (config.handler === 'sql') {
-      const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
-      let sql = await generateSQL(messages);
-      let queryResult: { data: string; rowCount: number; error?: string } | null = null;
-      for (let attempt = 0; attempt < 2 && sql; attempt++) {
-        queryResult = await queryAWS(sql);
-        if (!queryResult.error) break;
-        if (attempt === 0) {
-          const fixMessages = [
-            ...messages.slice(-4),
-            { role: 'assistant' as const, content: `I generated this SQL: ${sql}` },
-            { role: 'user' as const, content: `That SQL failed with error: ${queryResult.error}. Fix the SQL using only valid column names.` },
-          ];
-          sql = await generateSQL(fixMessages);
-        }
-      }
-      if (sql && queryResult && !queryResult.error) {
-        const contextData = `\n\n--- LIVE AWS RESOURCE DATA (${queryResult.rowCount} rows) ---\nSQL: ${sql}\n\`\`\`json\n${queryResult.data}\n\`\`\``;
-        const bedrockMessages = messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content }));
-        bedrockMessages[bedrockMessages.length - 1].content += contextData;
-        const body = JSON.stringify({
-          anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT, messages: bedrockMessages,
-        });
-        const response = await bedrockClient.send(new InvokeModelCommand({
-          modelId, contentType: 'application/json', accept: 'application/json',
-          body: new TextEncoder().encode(body),
-        }));
-        const result = JSON.parse(new TextDecoder().decode(response.body));
-        return NextResponse.json({
-          content: result.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
-          via: `${config.display} (${queryResult.rowCount} rows)`, queriedResources: ['steampipe'], route,
-        });
-      }
-    }
-
-    // AgentCore Gateway / AgentCore 게이트웨이
-    const gateway = config.gateway || 'ops';
-    const agentResponse = await invokeAgentCore(messages, gateway);
-    if (agentResponse) {
-      const cleanedResponse = agentResponse
-        .replace(/<tool_call>[\s\S]*?<\/tool_call>\s*/g, '')
-        .replace(/<tool_response>[\s\S]*?<\/tool_response>\s*/g, '')
-        .trim();
-      return NextResponse.json({
-        content: cleanedResponse || agentResponse, model: 'sonnet-4.6',
-        via: `AgentCore → ${config.display}`, queriedResources: [`${gateway}-gateway`], route,
-      });
-    }
-
-    // Fallback / 폴백
+  // Code handler / 코드 핸들러
+  if (config.handler === 'code') {
     const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
+    const codeSystemPrompt = SYSTEM_PROMPT + `\n\nThe user wants to execute code. If they provide code, wrap it in a \`\`\`python code block. If they describe a task, generate Python code to accomplish it and wrap it in a \`\`\`python code block. Always include print statements to show results.`;
     const body = JSON.stringify({
-      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT,
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: codeSystemPrompt,
       messages: messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content })),
     });
-    const response = await bedrockClient.send(new InvokeModelCommand({
+    const aiResponse = await bedrockClient.send(new InvokeModelCommand({
       modelId, contentType: 'application/json', accept: 'application/json',
       body: new TextEncoder().encode(body),
     }));
-    const result = JSON.parse(new TextDecoder().decode(response.body));
+    const aiText = JSON.parse(new TextDecoder().decode(aiResponse.body)).content?.[0]?.text || '';
+    const pythonCode = extractPythonCode(aiText) || extractPythonCode(lastMessage);
+    if (pythonCode) {
+      const codeResult = await executeCodeInterpreter(pythonCode);
+      const executionBlock = `\n\n---\n**Code Execution Result** (exit code: ${codeResult.exitCode}):\n\`\`\`\n${codeResult.output}\n\`\`\``;
+      return { content: aiText + executionBlock, via: `Bedrock + ${config.display}`, queriedResources: ['code-interpreter'] };
+    }
+    return { content: aiText, via: 'Bedrock (code)', queriedResources: [] };
+  }
+
+  // SQL handler / SQL 핸들러
+  if (config.handler === 'sql') {
+    const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
+    let sql = await generateSQL(messages);
+    let queryResult: { data: string; rowCount: number; error?: string } | null = null;
+    for (let attempt = 0; attempt < 2 && sql; attempt++) {
+      queryResult = await queryAWS(sql);
+      if (!queryResult.error) break;
+      if (attempt === 0) {
+        const fixMessages = [...messages.slice(-4),
+          { role: 'assistant' as const, content: `I generated this SQL: ${sql}` },
+          { role: 'user' as const, content: `That SQL failed with error: ${queryResult.error}. Fix the SQL using only valid column names.` },
+        ];
+        sql = await generateSQL(fixMessages);
+      }
+    }
+    if (sql && queryResult && !queryResult.error) {
+      const contextData = `\n\n--- LIVE AWS RESOURCE DATA (${queryResult.rowCount} rows) ---\nSQL: ${sql}\n\`\`\`json\n${queryResult.data}\n\`\`\``;
+      const bedrockMessages = messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content }));
+      bedrockMessages[bedrockMessages.length - 1].content += contextData;
+      const body = JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT, messages: bedrockMessages,
+      });
+      const response = await bedrockClient.send(new InvokeModelCommand({
+        modelId, contentType: 'application/json', accept: 'application/json',
+        body: new TextEncoder().encode(body),
+      }));
+      const result = JSON.parse(new TextDecoder().decode(response.body));
+      return { content: result.content?.[0]?.text || '', via: `${config.display} (${queryResult.rowCount} rows)`, queriedResources: ['steampipe'] };
+    }
+  }
+
+  // AgentCore Gateway / AgentCore 게이트웨이
+  const gateway = config.gateway || 'ops';
+  const agentResponse = await invokeAgentCore(messages, gateway);
+  if (agentResponse) {
+    const cleaned = agentResponse.replace(/<tool_call>[\s\S]*?<\/tool_call>\s*/g, '').replace(/<tool_response>[\s\S]*?<\/tool_response>\s*/g, '').trim();
+    return { content: cleaned || agentResponse, via: `AgentCore → ${config.display}`, queriedResources: [`${gateway}-gateway`] };
+  }
+  return null;
+}
+
+// ============================================================================
+// Synthesize multi-route responses / 멀티 라우트 응답 합성
+// ============================================================================
+async function synthesizeResponses(
+  question: string, responses: { route: string; content: string; via: string }[], modelKey?: string
+): Promise<string> {
+  const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
+  const parts = responses.map(r => `--- ${r.via} ---\n${r.content}`).join('\n\n');
+  const body = JSON.stringify({
+    anthropic_version: 'bedrock-2023-05-31',
+    max_tokens: 4096,
+    system: SYSTEM_PROMPT + `\n\nYou are synthesizing answers from multiple AWS service agents. Combine them into one coherent, well-structured response. Do not repeat information. Use the user's language.`,
+    messages: [
+      { role: 'user', content: `Question: ${question}\n\nMultiple agents responded:\n\n${parts}\n\nPlease synthesize into one comprehensive answer.` },
+    ],
+  });
+  const response = await bedrockClient.send(new InvokeModelCommand({
+    modelId, contentType: 'application/json', accept: 'application/json',
+    body: new TextEncoder().encode(body),
+  }));
+  const result = JSON.parse(new TextDecoder().decode(response.body));
+  return result.content?.[0]?.text || responses.map(r => r.content).join('\n\n---\n\n');
+}
+
+// ============================================================================
+// Non-streaming handler — supports multi-route / 비스트리밍 — 멀티 라우트 지원
+// ============================================================================
+async function handleNonStreaming(messages: Array<{role: string; content: string}>, modelKey?: string) {
+  try {
+    const routes = await classifyIntent(messages);
+    const primaryRoute = routes[0];
+    const primaryConfig = ROUTE_REGISTRY[primaryRoute];
+
+    // Single route (most common) / 단일 라우트 (일반적)
+    if (routes.length === 1) {
+      const result = await handleSingleRoute(primaryRoute, messages, modelKey);
+      if (result) {
+        return NextResponse.json({
+          content: result.content, model: modelKey || 'sonnet-4.6',
+          via: result.via, queriedResources: result.queriedResources,
+          route: primaryRoute, routes,
+        });
+      }
+      // Fallback / 폴백
+      const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
+      const body = JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT,
+        messages: messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content })),
+      });
+      const response = await bedrockClient.send(new InvokeModelCommand({
+        modelId, contentType: 'application/json', accept: 'application/json',
+        body: new TextEncoder().encode(body),
+      }));
+      const fallbackResult = JSON.parse(new TextDecoder().decode(response.body));
+      return NextResponse.json({
+        content: fallbackResult.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
+        via: `Bedrock Direct (fallback)`, queriedResources: [], route: primaryRoute, routes,
+      });
+    }
+
+    // Multi-route: parallel execution + synthesis / 멀티 라우트: 병렬 실행 + 합성
+    console.log(`[Multi-Route] ${routes.join(' + ')}`);
+    const results = await Promise.allSettled(
+      routes.map(r => handleSingleRoute(r, messages, modelKey))
+    );
+
+    const successful: { route: string; content: string; via: string }[] = [];
+    const allResources: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value) {
+        successful.push({ route: routes[i], content: r.value.content, via: r.value.via });
+        allResources.push(...r.value.queriedResources);
+      }
+    });
+
+    if (successful.length === 0) {
+      return NextResponse.json({
+        content: 'All routes failed. Please try again.', model: modelKey || 'sonnet-4.6',
+        via: 'Multi-route (all failed)', queriedResources: [], route: primaryRoute, routes,
+      });
+    }
+
+    // Single success → return directly / 1개만 성공 → 직접 반환
+    if (successful.length === 1) {
+      return NextResponse.json({
+        content: successful[0].content, model: modelKey || 'sonnet-4.6',
+        via: successful[0].via, queriedResources: allResources, route: primaryRoute, routes,
+      });
+    }
+
+    // Multiple successes → synthesize / 복수 성공 → 합성
+    const lastMsg = messages[messages.length - 1]?.content || '';
+    const synthesized = await synthesizeResponses(lastMsg, successful, modelKey);
+    const viaList = successful.map(s => s.via).join(' + ');
+
     return NextResponse.json({
-      content: result.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
-      via: `Bedrock Direct (fallback from ${config.display})`, queriedResources: [], route,
+      content: synthesized, model: modelKey || 'sonnet-4.6',
+      via: `Multi-Route: ${viaList}`, queriedResources: allResources, route: primaryRoute, routes,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'AI request failed' }, { status: 500 });
