@@ -249,7 +249,8 @@ export default function VPCPage() {
                 { key: 'resource_id', label: 'Resource' },
                 { key: 'resource_type', label: 'Type' },
                 { key: 'state', label: 'State', render: (v: string) => <StatusBadge status={v || 'unknown'} /> },
-              ]} data={tgwAttachments} />
+              ]} data={tgwAttachments}
+                 onRowClick={(row) => fetchDetail('tgw-att', vpcQ.tgwAttachmentDetail, '{att_id}', row.transit_gateway_attachment_id)} />
             </div>
           )}
         </>
@@ -305,7 +306,7 @@ export default function VPCPage() {
             <div className="sticky top-0 bg-navy-800 border-b border-navy-600 px-6 py-4 flex items-center justify-between z-10">
               <div>
                 <h2 className="text-lg font-bold text-white font-mono">
-                  {selected?.vpc_id || selected?.subnet_id || selected?.group_id || selected?.transit_gateway_id || selected?.nat_gateway_id || selected?.internet_gateway_id || selected?.name || 'Loading...'}
+                  {selected?.vpc_id || selected?.subnet_id || selected?.group_id || selected?.transit_gateway_attachment_id || selected?.transit_gateway_id || selected?.route_table_id || selected?.nat_gateway_id || selected?.internet_gateway_id || selected?.name || 'Loading...'}
                 </h2>
                 <p className="text-sm text-gray-400 capitalize">{detailType} Detail</p>
               </div>
@@ -449,6 +450,34 @@ export default function VPCPage() {
                       ) : <p className="text-gray-500 text-sm">No routes</p>;
                     })()}
                   </Section>
+                </>)}
+
+                {/* TGW Attachment Detail / TGW 어태치먼트 상세 */}
+                {detailType === 'tgw-att' && (<>
+                  <Section title="TGW Attachment" icon={ArrowRightLeft}>
+                    <Row label="Attachment ID" value={selected.transit_gateway_attachment_id} />
+                    <Row label="TGW ID" value={selected.transit_gateway_id} />
+                    <Row label="State" value={selected.state} />
+                    <Row label="Resource ID" value={selected.resource_id} />
+                    <Row label="Resource Type" value={selected.resource_type} />
+                    <Row label="Resource Owner" value={selected.resource_owner_id} />
+                    <Row label="TGW Owner" value={selected.transit_gateway_owner_id} />
+                    <Row label="Association State" value={selected.association_state || '--'} />
+                    <Row label="Route Table" value={selected.association_transit_gateway_route_table_id || '--'} />
+                    <Row label="Created" value={selected.creation_time ? new Date(selected.creation_time).toLocaleString() : '--'} />
+                  </Section>
+                  {selected.options && (() => {
+                    try {
+                      const opts = JSON.parse(selected.options);
+                      return (
+                        <Section title="Options" icon={Network}>
+                          {Object.entries(opts).map(([k, v]) => (
+                            <Row key={k} label={k} value={String(v)} />
+                          ))}
+                        </Section>
+                      );
+                    } catch { return null; }
+                  })()}
                 </>)}
 
                 {/* TGW Detail */}

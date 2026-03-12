@@ -130,6 +130,25 @@ export const queries = {
     ORDER BY destination_cidr_block
   `,
 
+  // TGW Attachment detail / TGW 어태치먼트 상세
+  tgwAttachmentDetail: `
+    SELECT
+      transit_gateway_attachment_id,
+      transit_gateway_id,
+      transit_gateway_owner_id,
+      state,
+      resource_id,
+      resource_type,
+      resource_owner_id,
+      association_state,
+      association_transit_gateway_route_table_id,
+      creation_time,
+      options::text AS options,
+      tags
+    FROM aws_ec2_transit_gateway_vpc_attachment
+    WHERE transit_gateway_attachment_id = '{att_id}'
+  `,
+
   routeTableList: `
     SELECT
       route_table_id, vpc_id, owner_id, region,
