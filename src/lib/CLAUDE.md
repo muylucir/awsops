@@ -7,8 +7,8 @@
 ## 주요 파일 / Key Files
 - `steampipe.ts` — pg 풀 연결: 최대 3개, 120초 타임아웃, 배치 쿼리, 5분 TTL 캐시
   (pg Pool connection: max 3, 120s timeout, batchQuery, node-cache 5 min TTL)
-- `queries/*.ts` — 16개 SQL 쿼리 파일 — AWS/K8s 서비스별 1개
-  (16 SQL query files — one per AWS/K8s service)
+- `queries/*.ts` — 19개 SQL 쿼리 파일 — AWS/K8s 서비스별 1개
+  (19 SQL query files — one per AWS/K8s service)
 
 ## 규칙 / Rules
 - 모든 데이터베이스 접근은 `steampipe.ts`의 `runQuery()` 또는 `batchQuery()`를 통해 수행
