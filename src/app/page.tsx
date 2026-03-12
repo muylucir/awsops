@@ -174,7 +174,7 @@ export default function DashboardPage() {
               change={`${vpc?.subnet_count || 0} Subnets`} />
           </CardLink>
           <CardLink href="/vpc">
-            <StatsCard label="Security Groups" value={Number(vpc?.sg_count) || 0} icon={Shield} color="cyan" />
+            <StatsCard label="Security Groups" value={Number(vpc?.security_group_count) || 0} icon={Shield} color="cyan" />
           </CardLink>
           <CardLink href="/rds">
             <StatsCard label="RDS" value={Number(rds?.total_instances) || 0} icon={Database} color="green"
