@@ -320,7 +320,7 @@ export default function RDSPage() {
                               <span className="text-xs font-mono text-white">{formatVal(Number(latest?.average) || 0)}</span>
                             </div>
                             {chartData.length > 2 ? (
-                              <div className="h-16">
+                              <div className="h-28">
                                 <LineChartCard title="" data={chartData} color={name === 'CPUUtilization' ? '#ef4444' : '#00d4ff'} />
                               </div>
                             ) : (

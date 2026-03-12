@@ -289,7 +289,7 @@ export default function ElastiCachePage() {
                               <span className="text-xs font-mono text-white">{formatVal(Number(latest?.average) || 0)}</span>
                             </div>
                             {chartData.length > 2 ? (
-                              <div className="h-16"><LineChartCard title="" data={chartData} color={color} /></div>
+                              <div className="h-28"><LineChartCard title="" data={chartData} color={color} /></div>
                             ) : (
                               <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
                                 <div><span className="text-gray-500">Avg:</span> <span className="text-white">{formatVal(Number(latest?.average) || 0)}</span></div>
