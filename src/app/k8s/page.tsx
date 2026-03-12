@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Filter } from 'lucide-react';
+import { Filter, ArrowLeft, Cpu, HardDrive, Wifi } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import StatsCard from '@/components/dashboard/StatsCard';
 import StatusBadge from '@/components/dashboard/StatusBadge';
@@ -80,6 +80,7 @@ export default function K8sOverviewPage() {
   const [selectedClusters, setSelectedClusters] = useState<Set<string>>(new Set());
   const [selectedVpcs, setSelectedVpcs] = useState<Set<string>>(new Set());
   const [showFilter, setShowFilter] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -97,6 +98,7 @@ export default function K8sOverviewPage() {
             namespaceSummary: k8sQ.namespaceSummary,
             nodeList: NODE_LIST_QUERY,
             podRequests: POD_REQUESTS_QUERY,
+            podList: k8sQ.podList,
             eksClusters: k8sQ.eksClusterList,
           },
         }),
@@ -172,6 +174,21 @@ export default function K8sOverviewPage() {
   };
   const clearFilters = () => { setSelectedClusters(new Set()); setSelectedVpcs(new Set()); };
 
+  // Selected node detail data / 선택된 노드 상세 데이터
+  const allPods = get('podList');
+  const selectedNodeData = useMemo(() => {
+    if (!selectedNode) return null;
+    const node = nodes.find((n: any) => n.name === selectedNode);
+    if (!node) return null;
+    const nodePods = allPods.filter((p: any) => p.node_name === selectedNode);
+    const req = reqMap[selectedNode] || { cpuReq: 0, memReqMiB: 0, podCount: 0 };
+    const capCpu = parseCpu(node.capacity_cpu) || 1;
+    const allocCpu = parseCpu(node.allocatable_cpu) || 0;
+    const capMiB = parseMiB(node.capacity_memory) || 1;
+    const allocMiB = parseMiB(node.allocatable_memory) || 0;
+    return { node, nodePods, req, capCpu, allocCpu, capMiB, allocMiB };
+  }, [selectedNode, nodes, allPods, reqMap]);
+
   // Pod status pie data
   const podStatusData = [
     { name: 'Running', value: Number(podSummary.running_pods) || 0 },
@@ -185,6 +202,123 @@ export default function K8sOverviewPage() {
     name: ns.name,
     value: 1,
   }));
+
+  // Node Detail View / 노드 상세 뷰
+  if (selectedNode && selectedNodeData) {
+    const { node, nodePods, req, capCpu, allocCpu, capMiB, allocMiB } = selectedNodeData;
+    const cpuReqPct = Math.min(Math.round((req.cpuReq / capCpu) * 100), 100);
+    const memReqPct = Math.min(Math.round((req.memReqMiB / capMiB) * 100), 100);
+    const cpuAllocPct = Math.round((allocCpu / capCpu) * 100);
+    const memAllocPct = Math.round((allocMiB / capMiB) * 100);
+
+    return (
+      <div className="min-h-screen">
+        <div className="p-6 space-y-6 animate-fade-in">
+          {/* Back button + Node name / 뒤로가기 + 노드 이름 */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSelectedNode(null)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-navy-800 border border-navy-600 text-gray-400 hover:text-white hover:border-accent-cyan/50 transition-colors text-sm"
+            >
+              <ArrowLeft size={16} />
+              Back to Overview
+            </button>
+            <div>
+              <h1 className="text-lg font-bold text-white font-mono">{node.name.split('.')[0]}</h1>
+              <p className="text-xs text-gray-500">{node.name}</p>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="bg-accent-green/15 text-accent-green text-xs font-mono px-2 py-1 rounded-full">{req.podCount} pods</span>
+              <StatusBadge status={node.status ?? 'Unknown'} />
+            </div>
+          </div>
+
+          {/* Resource Cards / 리소스 카드 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* CPU Card */}
+            <div className="bg-navy-800 border border-navy-600 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Cpu size={16} className="text-accent-cyan" />
+                <h3 className="text-sm font-semibold text-white">CPU</h3>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-gray-500">Capacity</span><span className="text-white font-mono">{capCpu} vCPU</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Allocatable</span><span className="text-white font-mono">{allocCpu.toFixed(2)} vCPU ({cpuAllocPct}%)</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Pod Requested</span><span className="text-accent-cyan font-mono">{req.cpuReq.toFixed(2)} vCPU ({cpuReqPct}%)</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Available</span><span className="text-accent-green font-mono">{(allocCpu - req.cpuReq).toFixed(2)} vCPU</span></div>
+              </div>
+              <div className="h-4 bg-navy-900 rounded-full overflow-hidden mt-3 flex">
+                <div className={`h-full ${cpuReqPct >= 80 ? 'bg-accent-red' : cpuReqPct >= 50 ? 'bg-accent-orange' : 'bg-accent-cyan'}`} style={{ width: `${cpuReqPct}%` }} />
+                <div className="h-full bg-accent-green/20" style={{ width: `${cpuAllocPct - cpuReqPct}%` }} />
+                <div className="h-full bg-gray-700" style={{ width: `${100 - cpuAllocPct}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] mt-1 text-gray-600">
+                <span>Requested</span><span>Available</span><span>Reserved</span>
+              </div>
+            </div>
+
+            {/* Memory Card */}
+            <div className="bg-navy-800 border border-navy-600 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <HardDrive size={16} className="text-accent-purple" />
+                <h3 className="text-sm font-semibold text-white">Memory</h3>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-gray-500">Capacity</span><span className="text-white font-mono">{formatK8sMemory(node.capacity_memory)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Allocatable</span><span className="text-white font-mono">{formatK8sMemory(`${allocMiB}Mi`)} ({memAllocPct}%)</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Pod Requested</span><span className="text-accent-purple font-mono">{formatK8sMemory(`${req.memReqMiB}Mi`)} ({memReqPct}%)</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Available</span><span className="text-accent-green font-mono">{formatK8sMemory(`${allocMiB - req.memReqMiB}Mi`)}</span></div>
+              </div>
+              <div className="h-4 bg-navy-900 rounded-full overflow-hidden mt-3 flex">
+                <div className={`h-full ${memReqPct >= 80 ? 'bg-accent-red' : memReqPct >= 50 ? 'bg-accent-orange' : 'bg-accent-purple'}`} style={{ width: `${memReqPct}%` }} />
+                <div className="h-full bg-accent-green/20" style={{ width: `${memAllocPct - memReqPct}%` }} />
+                <div className="h-full bg-gray-700" style={{ width: `${100 - memAllocPct}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] mt-1 text-gray-600">
+                <span>Requested</span><span>Available</span><span>Reserved</span>
+              </div>
+            </div>
+
+            {/* Network / Info Card */}
+            <div className="bg-navy-800 border border-navy-600 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Wifi size={16} className="text-accent-orange" />
+                <h3 className="text-sm font-semibold text-white">Network & Info</h3>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-gray-500">Pod CIDR</span><span className="text-white font-mono">{node.pod_cidr || '--'}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Total Pods</span><span className="text-accent-green font-mono">{req.podCount}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Running</span><span className="text-white font-mono">{nodePods.filter((p: any) => p.phase === 'Running').length}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Pending</span><span className="text-accent-orange font-mono">{nodePods.filter((p: any) => p.phase === 'Pending').length}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Failed</span><span className="text-accent-red font-mono">{nodePods.filter((p: any) => p.phase === 'Failed').length}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Created</span><span className="text-white font-mono">{node.creation_timestamp ? new Date(node.creation_timestamp).toLocaleDateString() : '--'}</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Pods Table / 파드 테이블 */}
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+              <Box size={18} className="text-accent-green" />
+              Pods on {node.name.split('.')[0]}
+              <span className="text-xs text-gray-500 font-normal ml-2">{nodePods.length} pods</span>
+            </h2>
+            <DataTable
+              columns={[
+                { key: 'name', label: 'Pod Name' },
+                { key: 'namespace', label: 'Namespace' },
+                { key: 'phase', label: 'Status', render: (v: string) => <StatusBadge status={v || 'Unknown'} /> },
+                { key: 'pod_ip', label: 'Pod IP' },
+                { key: 'service_account_name', label: 'Service Account' },
+                { key: 'creation_timestamp', label: 'Created', render: (v: string) => v ? new Date(v).toLocaleDateString() : '--' },
+              ]}
+              data={nodePods}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -335,12 +469,14 @@ export default function K8sOverviewPage() {
               return (
                 <div
                   key={node.name}
-                  className="bg-navy-800 border border-navy-600 rounded-lg p-4"
+                  onClick={() => setSelectedNode(node.name)}
+                  className="bg-navy-800 border border-navy-600 rounded-lg p-4 cursor-pointer transition-all hover:scale-[1.02] hover:border-accent-cyan/50"
                 >
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Server size={16} className="text-accent-cyan" />
                       <span className="text-white font-mono text-sm">{node.name.split('.')[0]}</span>
+                      <span className="bg-accent-green/15 text-accent-green text-[10px] font-mono px-1.5 py-0.5 rounded-full">{req.podCount} pods</span>
                     </div>
                     <StatusBadge status={node.status ?? 'Unknown'} />
                   </div>
@@ -357,7 +493,7 @@ export default function K8sOverviewPage() {
                   </div>
 
                   {/* Memory Usage Bar / 메모리 사용량 바 */}
-                  <div className="mb-3">
+                  <div className="mb-2">
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="text-gray-500">Memory</span>
                       <span className="text-white font-mono">{formatK8sMemory(`${req.memReqMiB}Mi`)} / {formatK8sMemory(node.capacity_memory)} <span className={memPct >= 80 ? 'text-accent-red' : memPct >= 50 ? 'text-accent-orange' : 'text-accent-purple'}>({memPct}%)</span></span>
@@ -365,10 +501,6 @@ export default function K8sOverviewPage() {
                     <div className="h-3 bg-navy-900 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${memPct >= 80 ? 'bg-accent-red' : memPct >= 50 ? 'bg-accent-orange' : 'bg-accent-purple'}`} style={{ width: `${memPct}%` }} />
                     </div>
-                  </div>
-
-                  <div className="text-[10px] text-gray-500">
-                    {req.podCount} pods {node.pod_cidr && `· CIDR ${node.pod_cidr}`}
                   </div>
                 </div>
               );
