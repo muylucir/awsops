@@ -111,10 +111,15 @@ export default function DashboardPage() {
     fetch('/awsops/api/benchmark?benchmark=cis_v300&action=status')
       .then(r => r.json())
       .then(s => {
-        if (s.hasResult && s.status === 'done') {
+        // hasResult가 true면 결과 파일 존재 (status가 done이 아니어도)
+        if (s.hasResult) {
           fetch('/awsops/api/benchmark?benchmark=cis_v300&action=result')
             .then(r => r.json())
-            .then(d => { if (!d.error) setCisSummary(d.summary?.status); })
+            .then(d => {
+              // summary.status.ok/alarm/skip/error 구조
+              const st = d?.summary?.status;
+              if (st) setCisSummary(st);
+            })
             .catch(() => {});
         }
       })
@@ -245,14 +250,15 @@ export default function DashboardPage() {
               const cisOk = Number(cisSummary?.ok) || 0;
               const cisAlarm = Number(cisSummary?.alarm) || 0;
               const cisSkip = Number(cisSummary?.skip) || 0;
-              const cisTotal = cisOk + cisAlarm + cisSkip;
-              const passRate = cisTotal > 0 ? ((cisOk / cisTotal) * 100).toFixed(0) : null;
+              const cisError = Number(cisSummary?.error) || 0;
+              const cisTotal = cisOk + cisAlarm + cisSkip + cisError;
+              const passRate = cisTotal > 0 ? ((cisOk / cisTotal) * 100).toFixed(1) : null;
               return (
                 <StatsCard label="CIS Compliance"
                   value={passRate ? `${passRate}%` : 'Not scanned'}
                   icon={ShieldCheck}
                   color={passRate ? (Number(passRate) >= 80 ? 'green' : Number(passRate) >= 50 ? 'orange' : 'red') : 'purple'}
-                  change={passRate ? `${cisOk} pass · ${cisAlarm} alarm · ${cisSkip} skip` : 'Run CIS benchmark'} />
+                  change={passRate ? `${cisAlarm} alarm · ${cisSkip} skip · ${cisError} error` : 'Run CIS benchmark'} />
               );
             })()}
           </CardLink>
