@@ -191,9 +191,9 @@ export default function DashboardPage() {
             <StatsCard label="Lambda" value={Number(lambda?.total_functions) || 0} icon={Zap} color="purple"
               change={`${Number(lambda?.unique_runtimes) || 0} runtimes · ${Number(lambda?.long_timeout_functions) || 0} long timeout`} />
           </CardLink>
-          <CardLink href="/ecs">
-            <StatsCard label="ECS" value={Number(ecs?.total_tasks) || 0} icon={Container} color="orange"
-              change={`${Number(ecs?.total_clusters) || 0} clusters · ${Number(ecs?.total_services) || 0} services`} />
+          <CardLink href="/agentcore">
+            <StatsCard label="AgentCore" value="8 GW" icon={Container} color="orange"
+              change="125 tools · 19 Lambda · Multi-route" />
           </CardLink>
           <CardLink href="/ecr">
             <StatsCard label="ECR" value={Number(ecrSum?.total_repos) || 0} icon={Package} color="green"

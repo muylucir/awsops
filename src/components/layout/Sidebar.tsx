@@ -43,6 +43,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Dashboard', href: '/', icon: LayoutDashboard },
       { label: 'AI Assistant', href: '/ai', icon: BrainCircuit },
+      { label: 'AgentCore', href: '/agentcore', icon: Activity },
     ],
   },
   {
