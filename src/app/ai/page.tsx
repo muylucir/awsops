@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, Database, Copy, Check } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { Send, Bot, User, Loader2, Sparkles, Database, Copy, Check, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -24,9 +24,42 @@ export default function AIPage() {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [agentCoreStatus, setAgentCoreStatus] = useState<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Fetch AgentCore status / AgentCore 상태 조회
+  useEffect(() => {
+    fetch('/awsops/api/agentcore')
+      .then(r => r.json())
+      .then(d => { if (!d.error) setAgentCoreStatus(d); })
+      .catch(() => {});
+  }, []);
+
+  // Session stats from chat messages / 채팅 메시지에서 세션 통계
+  const sessionStats = useMemo(() => {
+    const assistantMsgs = messages.filter(m => m.role === 'assistant' && m.via);
+    const routeCounts: Record<string, number> = {};
+    let totalTime = 0;
+    let successCount = 0;
+    let failCount = 0;
+
+    assistantMsgs.forEach(m => {
+      if (m.route) routeCounts[m.route] = (routeCounts[m.route] || 0) + 1;
+      if (m.responseTime) totalTime += m.responseTime;
+      if (m.content?.startsWith('Error')) failCount++; else successCount++;
+    });
+
+    return {
+      totalQueries: assistantMsgs.length,
+      avgResponseTime: assistantMsgs.length > 0 ? (totalTime / assistantMsgs.length).toFixed(1) : '0',
+      successRate: assistantMsgs.length > 0 ? Math.round((successCount / assistantMsgs.length) * 100) : 100,
+      routeCounts,
+      topRoute: Object.entries(routeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+    };
   }, [messages]);
 
   const [statusMessage, setStatusMessage] = useState('');
@@ -340,6 +373,110 @@ export default function AIPage() {
             <Send size={18} />
           </button>
         </div>
+      </div>
+
+      {/* AgentCore Dashboard Toggle / AgentCore 대시보드 토글 */}
+      <div className="border-t border-navy-600">
+        <button onClick={() => setShowDashboard(!showDashboard)}
+          className="w-full flex items-center justify-between px-6 py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors bg-navy-900/50">
+          <div className="flex items-center gap-2">
+            <Activity size={12} />
+            <span>AgentCore Dashboard</span>
+            {agentCoreStatus?.runtime && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono ${agentCoreStatus.runtime.status === 'READY' ? 'bg-accent-green/15 text-accent-green' : 'bg-accent-orange/15 text-accent-orange'}`}>
+                {agentCoreStatus.runtime.status}
+              </span>
+            )}
+            {sessionStats.totalQueries > 0 && (
+              <span className="text-gray-600">· {sessionStats.totalQueries} queries · avg {sessionStats.avgResponseTime}s</span>
+            )}
+          </div>
+          {showDashboard ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+
+        {showDashboard && (
+          <div className="px-6 py-4 bg-navy-900/80 border-t border-navy-700 space-y-4 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Session Stats / 세션 통계 */}
+              <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-gray-500 uppercase">Queries</p>
+                <p className="text-lg font-mono font-bold text-accent-cyan">{sessionStats.totalQueries}</p>
+              </div>
+              <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-gray-500 uppercase">Avg Response</p>
+                <p className="text-lg font-mono font-bold text-accent-green">{sessionStats.avgResponseTime}s</p>
+              </div>
+              <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-gray-500 uppercase">Success Rate</p>
+                <p className={`text-lg font-mono font-bold ${sessionStats.successRate >= 90 ? 'text-accent-green' : 'text-accent-orange'}`}>{sessionStats.successRate}%</p>
+              </div>
+              <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-gray-500 uppercase">Top Route</p>
+                <p className="text-lg font-mono font-bold text-accent-purple">{sessionStats.topRoute}</p>
+              </div>
+            </div>
+
+            {/* Route Distribution / 라우트 분포 */}
+            {Object.keys(sessionStats.routeCounts).length > 0 && (
+              <div className="bg-navy-800 border border-navy-600 rounded-lg p-3">
+                <p className="text-[9px] text-gray-500 uppercase mb-2">Route Distribution</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(sessionStats.routeCounts).sort((a, b) => b[1] - a[1]).map(([route, count]) => (
+                    <span key={route} className="text-[10px] font-mono px-2 py-0.5 rounded bg-navy-900 border border-navy-600">
+                      <span className="text-accent-cyan">{route}</span> <span className="text-gray-400">{count}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AgentCore Status / AgentCore 상태 */}
+            {agentCoreStatus && (
+              <>
+                {/* Runtime / 런타임 */}
+                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3">
+                  <p className="text-[9px] text-gray-500 uppercase mb-2">Runtime</p>
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    <span className={`px-2 py-0.5 rounded-full ${agentCoreStatus.runtime?.status === 'READY' ? 'bg-accent-green/15 text-accent-green' : 'bg-accent-orange/15 text-accent-orange'}`}>
+                      {agentCoreStatus.runtime?.status || 'UNKNOWN'}
+                    </span>
+                    <span className="text-gray-400">{agentCoreStatus.runtime?.id}</span>
+                    <span className="text-gray-600">v{agentCoreStatus.runtime?.version}</span>
+                  </div>
+                </div>
+
+                {/* Gateways / 게이트웨이 */}
+                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3">
+                  <p className="text-[9px] text-gray-500 uppercase mb-2">Gateways ({agentCoreStatus.gateways?.length || 0})</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                    {(agentCoreStatus.gateways || []).map((gw: any) => {
+                      const shortName = (gw.name || '').replace('awsops-', '').replace('-gateway', '');
+                      return (
+                        <div key={gw.id} className="bg-navy-900 rounded p-2 text-[10px] font-mono">
+                          <div className="flex items-center justify-between">
+                            <span className="text-white font-semibold">{shortName}</span>
+                            <span className={`px-1 py-0.5 rounded text-[8px] ${gw.status === 'READY' ? 'bg-accent-green/15 text-accent-green' : 'bg-accent-red/15 text-accent-red'}`}>
+                              {gw.status}
+                            </span>
+                          </div>
+                          <p className="text-gray-600 mt-0.5">{gw.targets} targets</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Code Interpreter / 코드 인터프리터 */}
+                <div className="bg-navy-800 border border-navy-600 rounded-lg p-3">
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    <span className="text-[9px] text-gray-500 uppercase">Code Interpreter</span>
+                    <span className="text-gray-400">{agentCoreStatus.codeInterpreter?.id}</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
