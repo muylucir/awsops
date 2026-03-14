@@ -18,6 +18,7 @@ export default function OpenSearchPage() {
   const [selected, setSelected] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [domainMetrics, setDomainMetrics] = useState<Record<string, Record<string, number>>>({});
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -34,7 +35,19 @@ export default function OpenSearchPage() {
           },
         }),
       });
-      setData(await res.json());
+      const result = await res.json();
+      setData(result);
+
+      // CloudWatch 메트릭 조회 / Fetch CloudWatch metrics for all domains
+      const domainList = result.list?.rows || [];
+      if (domainList.length > 0) {
+        const names = domainList.map((d: any) => d.domain_name).filter(Boolean);
+        try {
+          const mRes = await fetch(`/awsops/api/opensearch?domains=${encodeURIComponent(names.join(','))}`);
+          const mData = await mRes.json();
+          setDomainMetrics(mData.metrics || {});
+        } catch {}
+      }
     } catch {} finally { setLoading(false); }
   }, []);
 
@@ -142,6 +155,121 @@ export default function OpenSearchPage() {
         data={loading ? undefined : domains as any[]}
         onRowClick={(row: any) => fetchDetail(row.domain_name)}
       />
+
+      {/* Domain Metrics Table / 도메인 메트릭 테이블 */}
+      {!loading && domains.length > 0 && (
+        <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Database size={16} className="text-accent-cyan" />
+            Domain Metrics
+            <span className="text-xs text-gray-500 font-normal ml-1">({domains.length} domains · last 1h)</span>
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-navy-700">
+                  {['Domain', 'Engine', 'Cluster Status', 'CPU', 'JVM Memory', 'Nodes', 'Documents', 'Free Storage', 'Search Rate', 'Search Latency', 'Index Rate', 'Index Latency'].map(h => (
+                    <th key={h} className="px-3 py-2 text-left text-xs font-mono font-semibold uppercase tracking-wider text-accent-cyan">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(domains as any[]).map((d: any) => {
+                  const m = domainMetrics[d.domain_name] || {};
+                  const cpu = m.cpu || 0;
+                  const jvmMem = m.mem_pressure || 0;
+                  const freeStorage = m.free_storage || 0;
+                  const nodes = m.nodes || 0;
+                  const docs = m.searchable_docs || 0;
+                  const searchRate = m.search_rate || 0;
+                  const searchLatency = m.search_latency || 0;
+                  const indexRate = m.indexing_rate || 0;
+                  const indexLatency = m.indexing_latency || 0;
+                  const green = m.cluster_status_green || 0;
+                  const yellow = m.cluster_status_yellow || 0;
+                  const red = m.cluster_status_red || 0;
+                  const clusterStatus = red >= 1 ? 'RED' : yellow >= 1 ? 'YELLOW' : green >= 1 ? 'GREEN' : '-';
+                  return (
+                    <tr key={d.domain_name} className="border-b border-navy-600 hover:bg-navy-700 transition-colors cursor-pointer"
+                      onClick={() => fetchDetail(d.domain_name)}>
+                      <td className="px-3 py-2 text-sm text-white">{d.domain_name}</td>
+                      <td className="px-3 py-2 text-xs font-mono text-accent-cyan">{d.engine_version}</td>
+                      {/* Cluster Status */}
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          clusterStatus === 'GREEN' ? 'bg-accent-green/10 text-accent-green' :
+                          clusterStatus === 'YELLOW' ? 'bg-accent-orange/10 text-accent-orange' :
+                          clusterStatus === 'RED' ? 'bg-accent-red/10 text-accent-red' :
+                          'bg-navy-600 text-gray-500'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            clusterStatus === 'GREEN' ? 'bg-accent-green' :
+                            clusterStatus === 'YELLOW' ? 'bg-accent-orange' :
+                            clusterStatus === 'RED' ? 'bg-accent-red' : 'bg-gray-600'
+                          }`} />
+                          {clusterStatus}
+                        </span>
+                      </td>
+                      {/* CPU */}
+                      <td className="px-3 py-2">
+                        {cpu > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-14 h-2 bg-navy-600 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${cpu > 80 ? 'bg-accent-red' : cpu > 50 ? 'bg-accent-orange' : 'bg-accent-cyan'}`}
+                                style={{ width: `${Math.min(cpu, 100)}%` }} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-300">{cpu.toFixed(1)}%</span>
+                          </div>
+                        ) : <span className="text-xs text-gray-600">-</span>}
+                      </td>
+                      {/* JVM Memory Pressure */}
+                      <td className="px-3 py-2">
+                        {jvmMem > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-14 h-2 bg-navy-600 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${jvmMem > 85 ? 'bg-accent-red' : jvmMem > 60 ? 'bg-accent-orange' : 'bg-accent-purple'}`}
+                                style={{ width: `${Math.min(jvmMem, 100)}%` }} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-300">{jvmMem.toFixed(1)}%</span>
+                          </div>
+                        ) : <span className="text-xs text-gray-600">-</span>}
+                      </td>
+                      {/* Nodes */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {nodes > 0 ? Math.round(nodes) : '-'}
+                      </td>
+                      {/* Documents */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {docs > 0 ? Math.round(docs).toLocaleString() : '-'}
+                      </td>
+                      {/* Free Storage */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {freeStorage > 0 ? `${(freeStorage / 1024).toFixed(1)} GB` : '-'}
+                      </td>
+                      {/* Search Rate */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {searchRate > 0 ? `${searchRate.toFixed(1)}/5m` : '-'}
+                      </td>
+                      {/* Search Latency */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {searchLatency > 0 ? `${searchLatency.toFixed(1)} ms` : '-'}
+                      </td>
+                      {/* Index Rate */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {indexRate > 0 ? `${indexRate.toFixed(1)}/5m` : '-'}
+                      </td>
+                      {/* Index Latency */}
+                      <td className="px-3 py-2 text-xs font-mono text-gray-300">
+                        {indexLatency > 0 ? `${indexLatency.toFixed(1)} ms` : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detail Panel */}
       {selected && (
