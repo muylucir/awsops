@@ -122,11 +122,11 @@ export default function OpenSearchPage() {
           )},
           { key: 'cluster_config', label: 'Instance', render: (v: any) => {
             const cfg = safeJson(v);
-            return <span className="font-mono text-xs">{cfg?.InstanceType || cfg?.instanceType || '-'}</span>;
+            return <span className="font-mono text-xs">{cfg?.InstanceType || '-'}</span>;
           }},
-          { key: 'cluster_config', label: 'Nodes', render: (v: any) => {
-            const cfg = safeJson(v);
-            return <span className="font-mono">{cfg?.InstanceCount || cfg?.instanceCount || '-'}</span>;
+          { key: 'cluster_config', label: 'Nodes', render: (v: any, row: any) => {
+            const cfg = safeJson(row.cluster_config);
+            return <span className="font-mono">{cfg?.InstanceCount || '-'}</span>;
           }},
           { key: 'node_to_node_encryption_options_enabled', label: 'N2N Enc', render: (v: any) => (
             <span className={`text-xs font-medium ${v ? 'text-accent-green' : 'text-accent-red'}`}>{v ? 'Yes' : 'No'}</span>
@@ -136,7 +136,7 @@ export default function OpenSearchPage() {
           )},
           { key: 'ebs_options', label: 'Storage', render: (v: any) => {
             const ebs = safeJson(v);
-            return <span className="font-mono text-xs">{ebs?.VolumeSize || ebs?.volumeSize || '-'} GB</span>;
+            return <span className="font-mono text-xs">{ebs?.VolumeSize || '-'} GB</span>;
           }},
         ]}
         data={loading ? undefined : domains as any[]}
@@ -166,12 +166,14 @@ export default function OpenSearchPage() {
                     ['Domain Name', selected.domain_name],
                     ['Domain ID', selected.domain_id],
                     ['Engine', selected.engine_version],
+                    ['Engine Type', selected.engine_type],
                     ['Status', selected.processing ? 'Processing' : 'Active'],
-                    ['Created', selected.created ? 'Yes' : 'No'],
+                    ['IP Type', selected.ip_address_type],
+                    ['Endpoint', selected.endpoint],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between text-sm">
                       <span className="text-gray-500">{k}</span>
-                      <span className="text-gray-200 font-mono text-xs">{String(v || '-')}</span>
+                      <span className="text-gray-200 font-mono text-xs max-w-[280px] truncate">{String(v || '-')}</span>
                     </div>
                   ))}
                 </div>
@@ -184,17 +186,21 @@ export default function OpenSearchPage() {
                     <div className="bg-navy-900 rounded-lg p-4 space-y-2">
                       <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">Cluster Configuration</h3>
                       {[
-                        ['Instance Type', cfg.InstanceType || cfg.instanceType],
-                        ['Instance Count', cfg.InstanceCount || cfg.instanceCount],
-                        ['Dedicated Master', cfg.DedicatedMasterEnabled || cfg.dedicatedMasterEnabled ? 'Yes' : 'No'],
-                        ['Master Type', cfg.DedicatedMasterType || cfg.dedicatedMasterType || '-'],
-                        ['Master Count', cfg.DedicatedMasterCount || cfg.dedicatedMasterCount || '-'],
-                        ['Zone Awareness', cfg.ZoneAwarenessEnabled || cfg.zoneAwarenessEnabled ? 'Yes' : 'No'],
-                        ['Warm Enabled', cfg.WarmEnabled || cfg.warmEnabled ? 'Yes' : 'No'],
+                        ['Instance Type', cfg.InstanceType],
+                        ['Instance Count', cfg.InstanceCount],
+                        ['Dedicated Master', cfg.DedicatedMasterEnabled ? 'Yes' : 'No'],
+                        ['Master Type', cfg.DedicatedMasterType || '-'],
+                        ['Master Count', cfg.DedicatedMasterCount || '-'],
+                        ['Zone Awareness', cfg.ZoneAwarenessEnabled ? 'Yes' : 'No'],
+                        ['Warm Enabled', cfg.WarmEnabled ? 'Yes' : 'No'],
+                        ['Warm Type', cfg.WarmType || '-'],
+                        ['Warm Count', cfg.WarmCount || '-'],
+                        ['Cold Storage', cfg.ColdStorageOptions?.Enabled ? 'Yes' : 'No'],
+                        ['Multi-AZ with Standby', cfg.MultiAZWithStandbyEnabled ? 'Yes' : 'No'],
                       ].map(([k, v]) => (
                         <div key={k} className="flex justify-between text-sm">
                           <span className="text-gray-500">{k}</span>
-                          <span className="text-gray-200 font-mono text-xs">{String(v || '-')}</span>
+                          <span className="text-gray-200 font-mono text-xs">{String(v ?? '-')}</span>
                         </div>
                       ))}
                     </div>
@@ -209,15 +215,15 @@ export default function OpenSearchPage() {
                     <div className="bg-navy-900 rounded-lg p-4 space-y-2">
                       <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">EBS Storage</h3>
                       {[
-                        ['EBS Enabled', (ebs.EBSEnabled || ebs.ebsEnabled) ? 'Yes' : 'No'],
-                        ['Volume Type', ebs.VolumeType || ebs.volumeType],
-                        ['Volume Size (GB)', ebs.VolumeSize || ebs.volumeSize],
-                        ['IOPS', ebs.Iops || ebs.iops || '-'],
-                        ['Throughput', ebs.Throughput || ebs.throughput || '-'],
+                        ['EBS Enabled', ebs.EBSEnabled ? 'Yes' : 'No'],
+                        ['Volume Type', ebs.VolumeType],
+                        ['Volume Size (GB)', ebs.VolumeSize],
+                        ['IOPS', ebs.Iops || '-'],
+                        ['Throughput', ebs.Throughput || '-'],
                       ].map(([k, v]) => (
                         <div key={k} className="flex justify-between text-sm">
                           <span className="text-gray-500">{k}</span>
-                          <span className="text-gray-200 font-mono text-xs">{String(v || '-')}</span>
+                          <span className="text-gray-200 font-mono text-xs">{String(v ?? '-')}</span>
                         </div>
                       ))}
                     </div>
@@ -240,48 +246,144 @@ export default function OpenSearchPage() {
                       </span>
                     </div>
                     {(() => {
-                      const ear = safeJson(selected.encrypt_at_rest_options);
+                      const ear = safeJson(selected.encryption_at_rest_options);
                       return (
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">At Rest</span>
-                          <span className={ear?.Enabled || ear?.enabled ? 'text-accent-green' : 'text-accent-red'}>
-                            {ear?.Enabled || ear?.enabled ? 'Enabled' : 'Disabled'}
-                          </span>
-                        </div>
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">At Rest</span>
+                            <span className={ear?.Enabled ? 'text-accent-green' : 'text-accent-red'}>
+                              {ear?.Enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                          {ear?.KmsKeyId && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">KMS Key</span>
+                              <span className="text-gray-300 font-mono text-[10px] max-w-[280px] truncate">{ear.KmsKeyId}</span>
+                            </div>
+                          )}
+                        </>
                       );
                     })()}
                   </div>
                 </div>
 
-                {/* VPC / Endpoints */}
+                {/* Advanced Security */}
+                {(() => {
+                  const sec = safeJson(selected.advanced_security_options);
+                  if (!sec) return null;
+                  return (
+                    <div className="bg-navy-900 rounded-lg p-4 space-y-2">
+                      <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">Advanced Security</h3>
+                      {[
+                        ['Fine-Grained Access', sec.Enabled ? 'Enabled' : 'Disabled'],
+                        ['Internal User DB', sec.InternalUserDatabaseEnabled ? 'Enabled' : 'Disabled'],
+                        ['Anonymous Auth', sec.AnonymousAuthEnabled ? 'Enabled' : 'Disabled'],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-sm">
+                          <span className="text-gray-500">{k}</span>
+                          <span className={`text-xs ${v === 'Enabled' ? 'text-accent-green' : 'text-gray-500'}`}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* VPC / Network */}
                 {(() => {
                   const vpc = safeJson(selected.vpc_options);
-                  const endpoints = safeJson(selected.endpoints);
+                  const epOpts = safeJson(selected.domain_endpoint_options);
                   return (
                     <div className="bg-navy-900 rounded-lg p-4 space-y-2">
                       <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">Network</h3>
-                      {vpc ? (
+                      {vpc && vpc.VPCId ? (
                         <>
                           {[
-                            ['VPC ID', vpc.VPCId || vpc.vpcId],
-                            ['Subnets', JSON.stringify(vpc.SubnetIds || vpc.subnetIds || [])],
-                            ['Security Groups', JSON.stringify(vpc.SecurityGroupIds || vpc.securityGroupIds || [])],
+                            ['VPC ID', vpc.VPCId],
+                            ['Availability Zones', (vpc.AvailabilityZones || []).join(', ')],
                           ].map(([k, v]) => (
                             <div key={k} className="flex justify-between text-sm">
                               <span className="text-gray-500">{k}</span>
-                              <span className="text-gray-200 font-mono text-xs max-w-[280px] truncate">{String(v || '-')}</span>
+                              <span className="text-gray-200 font-mono text-xs">{String(v || '-')}</span>
                             </div>
                           ))}
+                          <div className="mt-1">
+                            <span className="text-gray-500 text-xs">Subnets:</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(vpc.SubnetIds || []).map((sn: string) => (
+                                <span key={sn} className="px-2 py-0.5 bg-navy-700 rounded text-xs font-mono text-gray-300">{sn}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-gray-500 text-xs">Security Groups:</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(vpc.SecurityGroupIds || []).map((sg: string) => (
+                                <span key={sg} className="px-2 py-0.5 bg-navy-700 rounded text-xs font-mono text-accent-cyan">{sg}</span>
+                              ))}
+                            </div>
+                          </div>
                         </>
                       ) : (
                         <p className="text-xs text-accent-orange">Public domain (no VPC)</p>
                       )}
-                      {endpoints && (
-                        <div className="mt-2">
-                          <span className="text-gray-500 text-xs">Endpoints:</span>
-                          <pre className="text-xs text-gray-400 font-mono mt-1 break-all">{JSON.stringify(endpoints, null, 2)}</pre>
+                      {epOpts && (
+                        <div className="mt-2 space-y-1">
+                          {[
+                            ['HTTPS Required', epOpts.EnforceHTTPS ? 'Yes' : 'No'],
+                            ['TLS Security Policy', epOpts.TLSSecurityPolicy],
+                            ['Custom Endpoint', epOpts.CustomEndpointEnabled ? epOpts.CustomEndpoint || 'Yes' : 'No'],
+                          ].map(([k, v]) => (
+                            <div key={k} className="flex justify-between text-sm">
+                              <span className="text-gray-500">{k}</span>
+                              <span className="text-gray-200 text-xs">{String(v || '-')}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
+                    </div>
+                  );
+                })()}
+
+                {/* Service Software */}
+                {(() => {
+                  const sw = safeJson(selected.service_software_options);
+                  if (!sw) return null;
+                  return (
+                    <div className="bg-navy-900 rounded-lg p-4 space-y-2">
+                      <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">Service Software</h3>
+                      {[
+                        ['Current Version', sw.CurrentVersion],
+                        ['Update Available', sw.UpdateAvailable ? 'Yes' : 'No'],
+                        ['Update Status', sw.UpdateStatus],
+                        ['Cancellable', sw.Cancellable ? 'Yes' : 'No'],
+                        ['Optional Deployment', sw.OptionalDeployment ? 'Yes' : 'No'],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-sm">
+                          <span className="text-gray-500">{k}</span>
+                          <span className="text-gray-200 text-xs">{String(v || '-')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Logging */}
+                {(() => {
+                  const logs = safeJson(selected.log_publishing_options);
+                  if (!logs || Object.keys(logs).length === 0) return null;
+                  return (
+                    <div className="bg-navy-900 rounded-lg p-4">
+                      <h3 className="text-xs font-semibold text-accent-cyan uppercase tracking-wider mb-2">Log Publishing</h3>
+                      <div className="space-y-1">
+                        {Object.entries(logs).map(([logType, config]: [string, any]) => (
+                          <div key={logType} className="flex justify-between text-xs">
+                            <span className="text-gray-400">{logType}</span>
+                            <span className={config?.Enabled ? 'text-accent-green' : 'text-gray-500'}>
+                              {config?.Enabled ? `→ ${config.CloudWatchLogsLogGroupArn?.split(':').pop() || 'Enabled'}` : 'Disabled'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })()}
