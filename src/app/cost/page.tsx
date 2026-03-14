@@ -26,6 +26,10 @@ export default function CostPage() {
   const [period, setPeriod] = useState('3m');
   const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
   const [showServiceFilter, setShowServiceFilter] = useState(false);
+  const [costAvailable, setCostAvailable] = useState<boolean | null>(null);
+  const [costReason, setCostReason] = useState('');
+  const [usingSnapshot, setUsingSnapshot] = useState(false);
+  const [snapshotDate, setSnapshotDate] = useState('');
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -37,11 +41,56 @@ export default function CostPage() {
           queries: { monthlyCost: costQ.monthlyCost, dailyCost: costQ.dailyCost, serviceCost: costQ.serviceCost },
         }),
       });
-      setData(await res.json());
-    } catch {} finally { setLoading(false); }
+      const result = await res.json();
+      const hasRows = result['monthlyCost']?.rows?.length > 0;
+      if (hasRows) {
+        setData(result);
+        setUsingSnapshot(false);
+        return;
+      }
+    } catch {}
+
+    // Live query failed or empty — try cached snapshot
+    await loadSnapshot();
+    setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const loadSnapshot = useCallback(async () => {
+    try {
+      const res = await fetch('/awsops/api/steampipe?action=cost-snapshot');
+      if (!res.ok) return;
+      const snap = await res.json();
+      setData({
+        monthlyCost: { rows: snap.monthlyCost || [] },
+        dailyCost: { rows: snap.dailyCost || [] },
+        serviceCost: { rows: snap.serviceCost || [] },
+      });
+      setUsingSnapshot(true);
+      setSnapshotDate(snap.timestamp || snap.date || '');
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  // Cost Explorer 가용성 먼저 확인 후 데이터 로딩
+  useEffect(() => {
+    fetch('/awsops/api/steampipe?action=cost-check')
+      .then(r => r.json())
+      .then(d => {
+        setCostAvailable(d.available !== false);
+        setCostReason(d.reason || '');
+        if (d.available !== false) {
+          fetchData();
+        } else {
+          // Cost Explorer unavailable — try loading snapshot
+          loadSnapshot();
+        }
+      })
+      .catch(() => {
+        setCostAvailable(false);
+        setCostReason('Failed to check Cost Explorer availability');
+        loadSnapshot();
+      });
+  }, [fetchData, loadSnapshot]);
 
   const fetchServiceDetail = async (service: string) => {
     setDetailLoading(true);
@@ -171,6 +220,72 @@ export default function CostPage() {
     <div className="p-6 space-y-6 animate-fade-in">
       <Header title="Cost Explorer" subtitle="AWS Billing & Cost Management" onRefresh={() => fetchData(true)} />
 
+      {costAvailable === false && !usingSnapshot && (
+        <div className="bg-navy-800 rounded-lg border border-accent-purple/30 p-8 text-center">
+          <DollarSign size={48} className="text-accent-purple mx-auto mb-4 opacity-50" />
+          <h2 className="text-xl font-bold text-white mb-2">Cost Explorer Unavailable</h2>
+          <p className="text-sm text-gray-400 mb-1">
+            {costReason || 'Cost data cannot be retrieved in this environment.'}
+          </p>
+          <p className="text-xs text-gray-500 mb-6">
+            No cached cost snapshots available. Visit this page when Cost Explorer is accessible to build a local cache.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setCostAvailable(null);
+                fetch('/awsops/api/steampipe?action=cost-check&bustCache=true')
+                  .then(r => r.json())
+                  .then(d => {
+                    setCostAvailable(d.available !== false);
+                    setCostReason(d.reason || '');
+                    if (d.available !== false) fetchData();
+                  })
+                  .catch(() => setCostAvailable(false));
+              }}
+              className="px-4 py-2 rounded-lg bg-accent-purple/20 text-accent-purple border border-accent-purple/40 hover:bg-accent-purple/30 transition-colors text-sm"
+            >
+              Re-check Availability
+            </button>
+            <a href="/awsops/inventory"
+              className="px-4 py-2 rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/40 hover:bg-accent-cyan/30 transition-colors text-sm"
+            >
+              View Resource Inventory
+            </a>
+          </div>
+        </div>
+      )}
+
+      {usingSnapshot && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-accent-orange/10 border border-accent-orange/30">
+          <Info size={18} className="text-accent-orange flex-shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm text-accent-orange font-medium">Showing cached data</span>
+            <span className="text-xs text-gray-400 ml-2">
+              Last fetched: {snapshotDate ? new Date(snapshotDate).toLocaleString() : 'unknown'}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setCostAvailable(null);
+              setUsingSnapshot(false);
+              fetch('/awsops/api/steampipe?action=cost-check&bustCache=true')
+                .then(r => r.json())
+                .then(d => {
+                  setCostAvailable(d.available !== false);
+                  setCostReason(d.reason || '');
+                  if (d.available !== false) fetchData();
+                  else loadSnapshot();
+                })
+                .catch(() => { setCostAvailable(false); loadSnapshot(); });
+            }}
+            className="px-3 py-1 rounded-lg bg-accent-orange/20 text-accent-orange border border-accent-orange/40 hover:bg-accent-orange/30 transition-colors text-xs"
+          >
+            Retry Live
+          </button>
+        </div>
+      )}
+
       {!loading && !hasData && (
         <div className="flex items-center gap-3 p-4 rounded-lg bg-accent-cyan/10 border border-accent-cyan/30">
           <Info size={20} className="text-accent-cyan flex-shrink-0" />
@@ -188,6 +303,7 @@ export default function CostPage() {
         </div>
       )}
 
+      {(costAvailable !== false || usingSnapshot) && (<>
       {/* Period + Service Filter / 기간 + 서비스 필터 */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
@@ -334,6 +450,7 @@ export default function CostPage() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

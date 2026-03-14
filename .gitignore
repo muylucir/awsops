@@ -18,6 +18,9 @@ next-env.d.ts
 # steampipe
 powerpipe/.powerpipe/
 
+# resource inventory snapshots (auto-generated daily)
+data/inventory/
+
 # logs
 npm-debug.log*
 yarn-debug.log*
