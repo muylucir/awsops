@@ -19,6 +19,8 @@ export default function MSKPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [brokerNodes, setBrokerNodes] = useState<any[]>([]);
+  const [allNodes, setAllNodes] = useState<{ clusterName: string; nodes: any[] }[]>([]);
+  const [nodesLoading, setNodesLoading] = useState(false);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -35,7 +37,24 @@ export default function MSKPage() {
           },
         }),
       });
-      setData(await res.json());
+      const result = await res.json();
+      setData(result);
+      // Fetch broker nodes for all clusters / 모든 클러스터의 브로커 노드 조회
+      const clusterList = result.list?.rows || [];
+      if (clusterList.length > 0) {
+        setNodesLoading(true);
+        const nodePromises = clusterList.map(async (c: any) => {
+          if (!c.cluster_arn) return { clusterName: c.cluster_name, nodes: [] };
+          try {
+            const nRes = await fetch(`/awsops/api/msk?clusterArn=${encodeURIComponent(c.cluster_arn)}`);
+            const nData = await nRes.json();
+            return { clusterName: c.cluster_name as string, nodes: nData.nodes || [] };
+          } catch { return { clusterName: c.cluster_name as string, nodes: [] }; }
+        });
+        const allResults = await Promise.all(nodePromises);
+        setAllNodes(allResults);
+        setNodesLoading(false);
+      }
     } catch {} finally { setLoading(false); }
   }, []);
 
@@ -145,6 +164,88 @@ export default function MSKPage() {
         data={loading ? undefined : clusters as any[]}
         onRowClick={(row: any) => fetchDetail(row.cluster_name, row.cluster_arn)}
       />
+
+      {/* Broker Nodes Overview — all clusters / 전체 클러스터 브로커 노드 */}
+      {(allNodes.length > 0 || nodesLoading) && (
+        <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Radio size={16} className="text-accent-cyan" />
+            Broker Nodes
+            {!nodesLoading && (
+              <span className="text-xs text-gray-500 font-normal ml-1">
+                ({allNodes.reduce((s, c) => s + c.nodes.filter((n: any) => n.NodeType === 'BROKER').length, 0)} brokers · {allNodes.reduce((s, c) => s + c.nodes.filter((n: any) => n.NodeType === 'CONTROLLER').length, 0)} controllers)
+              </span>
+            )}
+          </h3>
+          {nodesLoading ? (
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-12 bg-navy-700 rounded animate-pulse" />
+            ))}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-navy-700">
+                    {['Cluster', 'Type', 'Broker ID', 'Instance', 'VPC IP', 'Subnet', 'ENI', 'Kafka', 'Endpoint', 'Added'].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-xs font-mono font-semibold uppercase tracking-wider text-accent-cyan">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allNodes.flatMap(cluster =>
+                    cluster.nodes
+                      .filter((n: any) => n.NodeType === 'BROKER')
+                      .map((node: any, i: number) => {
+                        const bi = node.BrokerNodeInfo;
+                        return (
+                          <tr key={`${cluster.clusterName}-${i}`} className="border-b border-navy-600 hover:bg-navy-700 transition-colors">
+                            <td className="px-3 py-2 text-sm text-white">{cluster.clusterName}</td>
+                            <td className="px-3 py-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-accent-cyan/10 text-accent-cyan">
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent-cyan" />BROKER
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-sm font-mono text-gray-300">{bi?.BrokerId ? Math.round(bi.BrokerId) : '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-accent-green">{node.InstanceType || '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-gray-300">{bi?.ClientVpcIpAddress || '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-gray-500">{bi?.ClientSubnet || '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-gray-500">{bi?.AttachedENIId || '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-gray-300">{bi?.CurrentBrokerSoftwareInfo?.KafkaVersion || '-'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-gray-400 max-w-[200px] truncate">{bi?.Endpoints?.[0] || '-'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{node.AddedToClusterTime ? new Date(node.AddedToClusterTime).toLocaleDateString() : '-'}</td>
+                          </tr>
+                        );
+                      })
+                  )}
+                  {/* Controller rows */}
+                  {allNodes.flatMap(cluster =>
+                    cluster.nodes
+                      .filter((n: any) => n.NodeType === 'CONTROLLER')
+                      .map((node: any, i: number) => (
+                        <tr key={`${cluster.clusterName}-ctrl-${i}`} className="border-b border-navy-600/50 hover:bg-navy-700 transition-colors">
+                          <td className="px-3 py-2 text-sm text-gray-400">{cluster.clusterName}</td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-accent-purple/10 text-accent-purple">
+                              <span className="w-1.5 h-1.5 rounded-full bg-accent-purple" />CONTROLLER
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-sm font-mono text-gray-500">-</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">KRaft</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">-</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">-</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">-</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">-</td>
+                          <td className="px-3 py-2 text-xs font-mono text-gray-400 max-w-[200px] truncate">{node.ControllerNodeInfo?.Endpoints?.[0] || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">-</td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Detail Panel */}
       {selected && (
