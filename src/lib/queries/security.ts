@@ -4,7 +4,9 @@ export const queries = {
       (SELECT COUNT(*) FROM aws_s3_bucket WHERE bucket_policy_is_public = true OR block_public_acls = false) AS public_buckets,
       0 AS mfa_not_enabled,
       (SELECT COUNT(DISTINCT group_id) FROM aws_vpc_security_group_rule WHERE type = 'ingress' AND cidr_ipv4 = '0.0.0.0/0') AS open_sgs,
-      (SELECT COUNT(*) FROM aws_ebs_volume WHERE encrypted = false) AS unencrypted_volumes
+      (SELECT COUNT(*) FROM aws_ebs_volume WHERE encrypted = false) AS unencrypted_volumes,
+      (SELECT COUNT(*) FROM aws_ebs_volume) AS total_volumes,
+      (SELECT COUNT(*) FROM aws_ebs_snapshot) AS total_snapshots
   `,
 
   publicBuckets: `

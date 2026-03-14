@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -23,6 +24,7 @@ import {
   Globe,
   Shield,
   Package,
+  BarChart3,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -82,6 +84,7 @@ const navGroups: NavGroup[] = [
       { label: 'CloudWatch', href: '/cloudwatch', icon: Bell },
       { label: 'CloudTrail', href: '/cloudtrail', icon: FileSearch },
       { label: 'Cost', href: '/cost', icon: DollarSign },
+      { label: 'Resource Inventory', href: '/inventory', icon: BarChart3 },
     ],
   },
   {
@@ -96,6 +99,14 @@ const navGroups: NavGroup[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [costEnabled, setCostEnabled] = useState(true);
+
+  useEffect(() => {
+    fetch('/awsops/api/steampipe?action=config')
+      .then(r => r.json())
+      .then(d => setCostEnabled(d.costEnabled !== false))
+      .catch(() => {});
+  }, []);
 
   const isActive = (href: string) => {
     const path = pathname.replace('/awsops', '') || '/';
@@ -147,14 +158,34 @@ export default function Sidebar() {
               </p>
             )}
             <div className="space-y-0.5">
-              {group.items.map(renderNavItem)}
+              {group.items
+                .filter(item => costEnabled || item.href !== '/cost')
+                .map(renderNavItem)}
             </div>
           </div>
         ))}
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-navy-600">
+      <div className="px-4 py-3 border-t border-navy-600 space-y-2">
+        <button
+          onClick={() => {
+            const next = !costEnabled;
+            fetch('/awsops/api/steampipe?action=config', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ costEnabled: next }),
+            })
+              .then(r => r.json())
+              .then(d => setCostEnabled(d.costEnabled !== false))
+              .catch(() => {});
+          }}
+          className="flex items-center gap-2 text-[11px] text-gray-600 hover:text-gray-400 transition-colors"
+        >
+          <DollarSign size={12} />
+          <span>Cost: {costEnabled ? 'ON' : 'OFF'}</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${costEnabled ? 'bg-accent-green' : 'bg-gray-600'}`} />
+        </button>
         <p className="text-xs text-gray-600 font-mono">v1.4.0</p>
       </div>
     </aside>

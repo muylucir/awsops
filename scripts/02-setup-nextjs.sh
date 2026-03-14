@@ -8,6 +8,7 @@ set -e
 #     1. npm install (Node.js dependencies)                                    #
 #     2. Start Steampipe embedded PostgreSQL (port 9193)                       #
 #     3. Auto-sync password to src/lib/steampipe.ts                            #
+#     4. Detect Direct Payer vs MSP Payer (Cost Explorer availability)         #
 #                                                                              #
 #   Architecture:                                                              #
 #     Next.js (pg Pool) -> Steampipe PostgreSQL (9193) -> AWS/K8s/Trivy API    #
@@ -92,6 +93,34 @@ if [ -f "$STEAMPIPE_FILE" ]; then
 else
     echo -e "${RED}ERROR: $STEAMPIPE_FILE not found${NC}"
     exit 1
+fi
+
+# -- [4/4] Detect account type: Direct Payer vs MSP Payer --------------------
+#   MSP/Payer 관리 계정에서는 Cost Explorer API가 SCP로 차단됨
+#   설치 시 한 번 판별하여 data/config.json에 저장 → 런타임에 불필요한 쿼리 스킵
+echo ""
+echo -e "${CYAN}[4/4] Detecting account type (Direct Payer vs MSP Payer)...${NC}"
+
+mkdir -p "$WORK_DIR/data"
+CONFIG_FILE="$WORK_DIR/data/config.json"
+
+COST_RESULT=$(PGPASSWORD="$SP_PASSWORD" psql -h localhost -p 9193 -U steampipe -d steampipe \
+  -c "SELECT 1 FROM aws_cost_by_service_monthly LIMIT 1" -t -A 2>&1 || echo "COST_FAIL")
+
+if echo "$COST_RESULT" | grep -q "^1$"; then
+    echo '{"costEnabled": true}' > "$CONFIG_FILE"
+    echo -e "  ${GREEN}Direct Payer — Cost Explorer enabled${NC}"
+else
+    echo '{"costEnabled": false}' > "$CONFIG_FILE"
+    echo -e "  ${YELLOW}MSP/Payer account — Cost Explorer disabled${NC}"
+    echo -e "  ${YELLOW}Cost menu and queries will be hidden at runtime${NC}"
+    if echo "$COST_RESULT" | grep -qi "permission denied\|AccessDenied\|not authorized"; then
+        echo "  Reason: Access denied (SCP restriction)"
+    elif echo "$COST_RESULT" | grep -qi "timeout\|canceling"; then
+        echo "  Reason: Query timed out"
+    else
+        echo "  Reason: $COST_RESULT"
+    fi
 fi
 
 # -- Summary -------------------------------------------------------------------

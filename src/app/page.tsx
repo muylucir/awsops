@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData>({});
   const [loading, setLoading] = useState(true);
+  const [costAvailable, setCostAvailable] = useState<boolean | null>(null);
 
   const fetchData = useCallback(async (bustCache = false) => {
     setLoading(true);
@@ -57,6 +58,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          saveInventory: true,
           queries: {
             ec2Status: ec2Q.statusCount,
             ec2Types: ec2Q.typeDistribution,
@@ -68,8 +70,10 @@ export default function DashboardPage() {
             cwSummary: cwQ.summary,
             ecsSummary: ecsQ.summary,
             dynamoSummary: dynamoQ.summary,
-            costSummary: costQ.summary,
-            costDetail: costQ.dashboardDetail,
+            ...(costAvailable !== false ? {
+              costSummary: costQ.summary,
+              costDetail: costQ.dashboardDetail,
+            } : {}),
             k8sNodes: k8sQ.nodeSummary,
             k8sPods: k8sQ.podSummary,
             k8sDeploy: k8sQ.deploymentSummary,
@@ -88,6 +92,14 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Cost Explorer 가용성 선 확인 / Pre-check cost availability
+  useEffect(() => {
+    fetch('/awsops/api/steampipe?action=cost-check')
+      .then(r => r.json())
+      .then(d => setCostAvailable(d.available !== false))
+      .catch(() => setCostAvailable(false));
+  }, []);
 
   const get = (key: string) => data[key]?.rows || [];
   const getFirst = (key: string) => get(key)[0] || {};
@@ -280,8 +292,15 @@ export default function DashboardPage() {
               );
             })()}
           </CardLink>
-          <CardLink href="/cost">
+          <CardLink href={costAvailable === false ? '/inventory' : '/cost'}>
             {(() => {
+              if (costAvailable === false) {
+                return (
+                  <StatsCard label="Monthly Cost" value="N/A"
+                    icon={DollarSign} color="purple"
+                    change="Cost Explorer unavailable" />
+                );
+              }
               const thisM = Number(costDtl?.this_month) || 0;
               const lastM = Number(costDtl?.last_month) || 0;
               const daily = Number(costDtl?.daily_avg) || 0;

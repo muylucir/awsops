@@ -5,8 +5,10 @@
 (Core libraries: Steampipe database connection, SQL query definitions, and shared utilities.)
 
 ## 주요 파일 / Key Files
-- `steampipe.ts` — pg 풀 연결: 최대 3개, 120초 타임아웃, 배치 쿼리, 5분 TTL 캐시
-  (pg Pool connection: max 3, 120s timeout, batchQuery, node-cache 5 min TTL)
+- `steampipe.ts` — pg 풀 연결: 최대 5개, 120초 타임아웃, 배치 쿼리, 5분 TTL 캐시, Cost Explorer 가용성 probe
+  (pg Pool connection: max 5, 120s timeout, batchQuery, node-cache 5 min TTL, checkCostAvailability)
+- `resource-inventory.ts` — 리소스 인벤토리 스냅샷 저장/조회/추이 계산 (data/inventory/, 추가 쿼리 0건)
+  (Resource inventory snapshot save/load/trend calculation, zero additional queries)
 - `queries/*.ts` — 19개 SQL 쿼리 파일 — AWS/K8s 서비스별 1개
   (19 SQL query files — one per AWS/K8s service)
 

@@ -80,3 +80,53 @@ export async function batchQuery(
 export function clearCache(): void {
   cache.flushAll();
 }
+
+// Cost Explorer availability probe / Cost Explorer 가용성 확인
+// 설치 시 config로 MSP 판별 → 런타임에 Steampipe 쿼리 스킵
+import { getConfig } from '@/lib/app-config';
+
+const COST_CACHE_KEY = 'cost:available';
+const COST_CACHE_TTL = 3600; // 1시간
+
+export async function checkCostAvailability(
+  bustCache = false
+): Promise<{ available: boolean; reason?: string; checkedAt?: string }> {
+  // 설치 시 판별된 config 확인 — MSP Payer면 쿼리 없이 즉시 반환
+  const config = getConfig();
+  if (!config.costEnabled) {
+    return {
+      available: false,
+      reason: 'Cost Explorer disabled (MSP/Payer account — configured at install)',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!bustCache) {
+    const cached = cache.get<{ available: boolean; reason?: string; checkedAt?: string }>(COST_CACHE_KEY);
+    if (cached) return cached;
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("SET LOCAL statement_timeout = '10000'"); // 10초 전용 타임아웃
+    await client.query('SELECT 1 FROM aws_cost_by_service_monthly LIMIT 1');
+    const result = { available: true, checkedAt: new Date().toISOString() };
+    cache.set(COST_CACHE_KEY, result, COST_CACHE_TTL);
+    return result;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    const reason = /permission denied|AccessDenied|not authorized/i.test(message)
+      ? 'Cost Explorer access denied (MSP/SCP restriction)'
+      : /timeout|canceling statement/i.test(message)
+        ? 'Cost Explorer query timed out'
+        : /does not exist/i.test(message)
+          ? 'Cost Explorer not enabled'
+          : `Cost Explorer unavailable: ${message}`;
+    const result = { available: false, reason, checkedAt: new Date().toISOString() };
+    cache.set(COST_CACHE_KEY, result, COST_CACHE_TTL);
+    return result;
+  } finally {
+    if (client) client.release();
+  }
+}
