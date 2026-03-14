@@ -5,6 +5,7 @@ export const queries = {
       (SELECT COUNT(*) FROM aws_elasticache_replication_group) AS total_replication_groups,
       (SELECT COUNT(DISTINCT cache_node_type) FROM aws_elasticache_cluster) AS node_types,
       (SELECT COUNT(*) FROM aws_elasticache_cluster WHERE engine = 'redis') AS redis_count,
+      (SELECT COUNT(*) FROM aws_elasticache_cluster WHERE engine = 'valkey') AS valkey_count,
       (SELECT COUNT(*) FROM aws_elasticache_cluster WHERE engine = 'memcached') AS memcached_count,
       (SELECT COALESCE(SUM(num_cache_nodes), 0) FROM aws_elasticache_cluster) AS total_nodes
   `,
@@ -103,6 +104,7 @@ export const queries = {
       transit_encryption_enabled,
       auto_minor_version_upgrade,
       cache_cluster_create_time,
+      cache_nodes::text AS cache_nodes,
       region
     FROM
       aws_elasticache_cluster

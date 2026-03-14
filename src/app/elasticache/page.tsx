@@ -100,15 +100,23 @@ export default function ElastiCachePage() {
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
-      <Header title="ElastiCache" subtitle="Redis & Memcached Clusters" onRefresh={() => fetchData(true)} />
+      <Header title="ElastiCache" subtitle="Valkey · Redis · Memcached" onRefresh={() => fetchData(true)} />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatsCard label="Clusters" value={Number(summary?.total_clusters) || 0} icon={Database} color="red" />
-        <StatsCard label="Repl Groups" value={Number(summary?.total_replication_groups) || 0} icon={Database} color="purple" />
-        <StatsCard label="Total Nodes" value={Number(summary?.total_nodes) || 0} icon={Database} color="cyan" />
-        <StatsCard label="Redis" value={Number(summary?.redis_count) || 0} icon={Database} color="orange" />
-        <StatsCard label="Memcached" value={Number(summary?.memcached_count) || 0} icon={Database} color="green" />
-        <StatsCard label="Node Types" value={Number(summary?.node_types) || 0} icon={Database} color="pink" />
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <StatsCard label="Clusters" value={Number(summary?.total_clusters) || 0} icon={Database} color="cyan"
+          change={`${Number(summary?.total_replication_groups) || 0} repl groups`} />
+        <StatsCard label="Total Nodes" value={Number(summary?.total_nodes) || 0} icon={Database} color="purple"
+          change={`${Number(summary?.node_types) || 0} node types`} />
+        <StatsCard label="Valkey" value={Number(summary?.valkey_count) || 0} icon={Database} color="red"
+          change={Number(summary?.valkey_count) > 0 ? 'Valkey engine' : 'Not in use'} />
+        <StatsCard label="Redis" value={Number(summary?.redis_count) || 0} icon={Database} color="orange"
+          change={Number(summary?.redis_count) > 0 ? 'Redis engine' : 'Not in use'} />
+        <StatsCard label="Memcached" value={Number(summary?.memcached_count) || 0} icon={Database} color="green"
+          change={Number(summary?.memcached_count) > 0 ? 'Memcached engine' : 'Not in use'} />
+        <StatsCard label="Repl Groups" value={Number(summary?.total_replication_groups) || 0} icon={Database} color="pink"
+          change="Replication groups" />
+        <StatsCard label="Node Types" value={Number(summary?.node_types) || 0} icon={Database} color="cyan"
+          change="Distinct types" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -166,6 +174,85 @@ export default function ElastiCachePage() {
             ]}
             data={loading ? undefined : get('replGroups')}
           />
+        </div>
+      )}
+
+      {/* Cache Nodes Detail Table / 캐시 노드 상세 테이블 */}
+      {!loading && get('clusters').length > 0 && (
+        <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Database size={16} className="text-accent-cyan" />
+            Cache Nodes
+            <span className="text-xs text-gray-500 font-normal ml-1">
+              ({get('clusters').reduce((sum: number, c: any) => {
+                try { return sum + JSON.parse(c.cache_nodes || '[]').length; } catch { return sum; }
+              }, 0)} nodes)
+            </span>
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-navy-700">
+                  {['Cluster ID', 'Engine', 'Version', 'Node Type', 'Node ID', 'Status', 'AZ', 'Endpoint', 'Port', 'Created', 'Param Status'].map(h => (
+                    <th key={h} className="px-3 py-2 text-left text-xs font-mono font-semibold uppercase tracking-wider text-accent-cyan">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {get('clusters')
+                  .filter((c: any) => {
+                    if (!searchText) return true;
+                    const s = searchText.toLowerCase();
+                    return String(c.cache_cluster_id || '').toLowerCase().includes(s) ||
+                      String(c.engine || '').toLowerCase().includes(s) ||
+                      String(c.cache_node_type || '').toLowerCase().includes(s);
+                  })
+                  .flatMap((cluster: any) => {
+                    const nodes = (() => { try { return JSON.parse(cluster.cache_nodes || '[]'); } catch { return []; } })();
+                    return nodes.map((node: any, i: number) => (
+                      <tr key={`${cluster.cache_cluster_id}-${i}`} className="border-b border-navy-600 hover:bg-navy-700 transition-colors">
+                        <td className="px-3 py-2 text-sm text-white">{cluster.cache_cluster_id}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            cluster.engine === 'valkey' ? 'bg-accent-red/10 text-accent-red' :
+                            cluster.engine === 'redis' ? 'bg-accent-orange/10 text-accent-orange' :
+                            'bg-accent-green/10 text-accent-green'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              cluster.engine === 'valkey' ? 'bg-accent-red' :
+                              cluster.engine === 'redis' ? 'bg-accent-orange' : 'bg-accent-green'
+                            }`} />
+                            {cluster.engine}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-xs font-mono text-gray-300">{cluster.engine_version}</td>
+                        <td className="px-3 py-2 text-xs font-mono text-accent-green">{cluster.cache_node_type}</td>
+                        <td className="px-3 py-2 text-xs font-mono text-gray-300">{node.CacheNodeId}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            node.CacheNodeStatus === 'available' ? 'bg-accent-green/10 text-accent-green' : 'bg-accent-orange/10 text-accent-orange'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              node.CacheNodeStatus === 'available' ? 'bg-accent-green' : 'bg-accent-orange'
+                            }`} />
+                            {node.CacheNodeStatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-400">{node.CustomerAvailabilityZone || '-'}</td>
+                        <td className="px-3 py-2 text-xs font-mono text-gray-400 max-w-[220px] truncate">{node.Endpoint?.Address || '-'}</td>
+                        <td className="px-3 py-2 text-xs font-mono text-gray-300">{node.Endpoint?.Port || '-'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{node.CacheNodeCreateTime ? new Date(node.CacheNodeCreateTime).toLocaleDateString() : '-'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`text-xs ${node.ParameterGroupStatus === 'in-sync' ? 'text-accent-green' : 'text-accent-orange'}`}>
+                            {node.ParameterGroupStatus || '-'}
+                          </span>
+                        </td>
+                      </tr>
+                    ));
+                  })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
