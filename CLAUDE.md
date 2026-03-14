@@ -7,7 +7,7 @@
 ## 아키텍처 / Architecture
 - **프론트엔드 / Frontend**: Next.js 14 (App Router) + Tailwind CSS dark theme + Recharts + React Flow
 - **데이터 / Data**: Steampipe embedded PostgreSQL (port 9193) — 380개 이상 AWS 테이블, 60개 이상 K8s 테이블 (380+ AWS tables, 60+ K8s tables)
-- **AI 엔진 / AI**: Bedrock Sonnet/Opus 4.6 + AgentCore Runtime (Strands) + 7 Gateways (Infra/IaC/Data/Security/Monitoring/Cost/Ops) + 19 Lambda + 125개 MCP 도구 (125 MCP tools)
+- **AI 엔진 / AI**: Bedrock Sonnet/Opus 4.6 + AgentCore Runtime (Strands) + 8 Gateways (Network/Container/IaC/Data/Security/Monitoring/Cost/Ops) + 19 Lambda + 125개 MCP 도구 (125 MCP tools)
 - **인증 / Auth**: Cognito User Pool + Lambda@Edge (Python 3.12, us-east-1) + CloudFront
 - **인프라 / Infra**: CDK (`infra-cdk/`) → CloudFront (CACHING_DISABLED) → ALB (SG: CF prefix list, port 80-3000) → EC2 (t4g.2xlarge, Private Subnet)
 
@@ -16,8 +16,8 @@
 ### 데이터 접근 / Data Access
 - 모든 쿼리는 `src/lib/steampipe.ts`의 **pg Pool**을 통해 실행 — Steampipe CLI 사용 금지
   (ALL queries go through `src/lib/steampipe.ts` using **pg Pool** — NOT Steampipe CLI)
-- 풀 설정: `max: 3, statement_timeout: 120s, batchQuery: 3 sequential`
-  (Pool config: max 3 connections, 120s timeout, 3 sequential batch queries)
+- 풀 설정: `max: 5, statement_timeout: 120s, batchQuery: 5 sequential`
+  (Pool config: max 5 connections, 120s timeout, 5 sequential batch queries)
 - 결과는 node-cache를 통해 5분간 캐싱
   (Results cached 5 minutes via node-cache)
 - `steampipe query "SQL"` CLI 사용 금지 — 660배 느림
@@ -47,9 +47,15 @@
 
 ### AI 라우팅 / AI Routing (`src/app/api/ai/route.ts`)
 1. 코드 실행 키워드 → 코드 인터프리터 (Code execution keywords → Code Interpreter)
-2. 네트워크 키워드 (ENI, route, flow log) → AgentCore 런타임 (Gateway MCP) (Network keywords → AgentCore Runtime)
-3. AWS 리소스 키워드 (EC2, VPC, RDS) → Steampipe + Bedrock 직접 호출 (AWS resource keywords → Steampipe + Bedrock Direct)
-4. 일반 → AgentCore 런타임 → Bedrock 폴백 (General → AgentCore Runtime → Bedrock fallback)
+2. 네트워크 키워드 → Network Gateway (ENI, reachability, flow log, VPN)
+3. 컨테이너 키워드 → Container Gateway (EKS, ECS, Fargate, Istio)
+4. IaC 키워드 → IaC Gateway (CDK, CloudFormation, Terraform)
+5. 데이터 키워드 → Data Gateway (DynamoDB, RDS, ElastiCache, MSK)
+6. 보안 키워드 → Security Gateway (IAM, policy, MFA, access key)
+7. 모니터링 키워드 → Monitoring Gateway (CloudWatch, CloudTrail)
+8. 비용 키워드 → Cost Gateway (billing, forecast, budget)
+9. AWS 데이터 키워드 → Steampipe + Bedrock 직접 (EC2, S3, VPC, Lambda)
+10. 일반 → Ops Gateway → Bedrock 폴백 (General → Ops Gateway → Bedrock fallback)
 
 ### 테마 / Theme
 - Navy: 900 (#0a0e1a), 800 (#0f1629), 700 (#151d30), 600 (#1a2540)
@@ -58,9 +64,12 @@
   (StatsCard/LiveResourceCard `color` prop: use names ('cyan') not hex)
 
 ## 주요 파일 / Key Files
-- `src/lib/steampipe.ts` — pg 풀 + 배치 쿼리 + 캐시 (pg Pool + batchQuery + cache)
-- `src/lib/queries/*.ts` — 16개 SQL 쿼리 파일 (16 SQL query files)
-- `src/app/api/ai/route.ts` — AI 라우팅 (AI routing, 4 routes + Code Interpreter)
+- `src/lib/steampipe.ts` — pg 풀 + 배치 쿼리 + 캐시 + Cost 가용성 probe (pg Pool + batchQuery + cache + checkCostAvailability)
+- `src/lib/queries/*.ts` — 20개 SQL 쿼리 파일 (20 SQL query files)
+- `src/lib/resource-inventory.ts` — 리소스 인벤토리 스냅샷 (Resource inventory snapshots)
+- `src/lib/cost-snapshot.ts` — Cost 데이터 스냅샷 폴백 (Cost data snapshot fallback)
+- `src/lib/app-config.ts` — 앱 설정 (costEnabled 등) (App config)
+- `src/app/api/ai/route.ts` — AI 라우팅 (AI routing, 10 routes + Code Interpreter)
 - `src/components/layout/Sidebar.tsx` — 네비게이션, 6개 그룹 (Navigation, 6 groups)
 - `infra-cdk/lib/awsops-stack.ts` — CDK 인프라 (VPC, EC2, ALB, CloudFront)
 - `infra-cdk/lib/cognito-stack.ts` — CDK Cognito (User Pool, Lambda@Edge)
@@ -78,7 +87,7 @@ Step 3:  03-build-deploy.sh              Production 빌드
 Step 5:  05-setup-cognito.sh             Cognito 인증
 Step 6a: 06a-setup-agentcore-runtime.sh  Runtime (IAM, ECR, Docker, Endpoint)
 Step 6b: 06b-setup-agentcore-gateway.sh  Gateway (MCP)
-Step 6c: 06c-setup-agentcore-tools.sh    Tools (19 Lambda + 7 Gateways, 125 tools)
+Step 6c: 06c-setup-agentcore-tools.sh    Tools (19 Lambda + 8 Gateways, 125 tools)
 Step 6d: 06d-setup-agentcore-interpreter.sh  Code Interpreter
 Step 7:  07-setup-cloudfront-auth.sh     Lambda@Edge → CloudFront 연동
 ```

@@ -14,7 +14,7 @@
 - `dashboard/StatsCard.tsx` — 통계 카드 (Stats card with color prop)
 - `dashboard/LiveResourceCard.tsx` — 실시간 리소스 카드 (Live resource card)
 - `dashboard/CategoryCard.tsx` — 카테고리 카드 (Category card)
-- `dashboard/StatusBadge.tsx` — 상태 배지 (Status badge)
+- `dashboard/StatusBadge.tsx` — 상태 배지, `status` prop만 받음 (Status badge, accepts only `status` prop — no `text`)
 
 ### charts/ — Recharts 차트 래퍼 (3)
 - `charts/BarChartCard.tsx` — 바 차트 (Bar chart wrapper)
