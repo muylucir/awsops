@@ -1,4 +1,4 @@
-# AWSops Dashboard v1.3.0
+# AWSops Dashboard v1.5.0
 
 > AWS + Kubernetes Operations Dashboard — Steampipe, Next.js, Amazon Bedrock AgentCore
 > AWS + Kubernetes 운영 대시보드 — Steampipe, Next.js, Amazon Bedrock AgentCore
@@ -39,7 +39,7 @@
 │                                                                              │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
 │  │  Next.js :3000  │  │  Steampipe :9193 │  │  VSCode :8888             │  │
-│  │  (27 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
+│  │  (29 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
 │  │  (4 APIs)       │  │  aws / k8s / trivy│  │                           │  │
 │  └─────────────────┘  └──────────────────┘  └────────────────────────────┘  │
 │  ┌─────────────────┐  ┌──────────────────────────────────────────────────┐  │
@@ -66,12 +66,13 @@
 
 ## Features / 기능
 
-### Dashboard Pages (27 pages)
+### Dashboard Pages (29 pages)
 
 | Category | Page | Path | Features / 기능 |
 |----------|------|------|-----------------|
 | **Overview** | Dashboard | `/awsops` | 18 StatsCards, Live Resources, Charts, Warnings |
 | | AI Assistant | `/awsops/ai` | Claude Sonnet/Opus 4.6, SSE streaming, multi-route |
+| | AgentCore | `/awsops/agentcore` | Runtime status, 8 Gateways, 125 tools |
 | **Compute** | EC2 | `/awsops/ec2` | Instances + detail panel |
 | | Lambda | `/awsops/lambda` | Functions, runtimes, memory/timeout |
 | | ECS | `/awsops/ecs` | Clusters, services, tasks |
@@ -86,14 +87,16 @@
 | | CloudFront | `/awsops/cloudfront-cdn` | Distributions, origins, behaviors |
 | | WAF | `/awsops/waf` | Web ACLs, rules, metrics |
 | | Topology | `/awsops/topology` | Infra Map + Graph / K8s Map (React Flow) |
-| **Storage & DB** | S3 | `/awsops/s3` | Buckets, TreeMap, search, IAM analysis |
+| **Storage & DB** | EBS | `/awsops/ebs` | Volumes, Snapshots, encryption, EC2 attachment mapping |
+| | S3 | `/awsops/s3` | Buckets, TreeMap, search, IAM analysis |
 | | RDS | `/awsops/rds` | Instances, SG chaining, metrics |
 | | DynamoDB | `/awsops/dynamodb` | Tables, capacity, indexes |
 | | ElastiCache | `/awsops/elasticache` | Clusters, SG, metrics |
 | **Monitoring** | Monitoring | `/awsops/monitoring` | CPU, Memory, Network, Disk I/O (date range) |
 | | CloudWatch | `/awsops/cloudwatch` | Alarms, state history |
 | | CloudTrail | `/awsops/cloudtrail` | Trails, events (read/write) |
-| | Cost Explorer | `/awsops/cost` | Period/service filter, daily/monthly breakdown |
+| | Cost Explorer | `/awsops/cost` | Period/service filter, daily/monthly breakdown, MSP auto-detect |
+| | Resource Inventory | `/awsops/inventory` | Resource count trends, cost impact estimation |
 | **Security** | IAM | `/awsops/iam` | Users, roles, trust policies |
 | | Security | `/awsops/security` | Public S3, Open SGs, Unencrypted EBS, CVE |
 | | CIS Compliance | `/awsops/compliance` | CIS v1.5~v4.0 benchmarks (431 controls) |
@@ -253,7 +256,7 @@ bash scripts/10-verify.sh       # Health check
 ```
 awsops/
 ├── src/
-│   ├── app/                      # 27 pages + 4 API routes
+│   ├── app/                      # 29 pages + 4 API routes
 │   │   ├── page.tsx              # Dashboard home (18 StatsCards)
 │   │   ├── ai/                   # AI Assistant (SSE streaming)
 │   │   ├── ec2/                  # EC2 instances
@@ -265,6 +268,7 @@ awsops/
 │   │   ├── cloudfront-cdn/       # CloudFront distributions
 │   │   ├── waf/                  # WAF Web ACLs
 │   │   ├── topology/             # Infra Map + K8s Map (React Flow)
+│   │   ├── ebs/                  # EBS volumes/snapshots (encryption, attachments)
 │   │   ├── s3/                   # S3 buckets (TreeMap, IAM)
 │   │   ├── rds/                  # RDS instances (SG chaining)
 │   │   ├── dynamodb/             # DynamoDB tables
@@ -272,14 +276,15 @@ awsops/
 │   │   ├── monitoring/           # CPU/Memory/Network/Disk (date range)
 │   │   ├── cloudwatch/           # CloudWatch alarms
 │   │   ├── cloudtrail/           # CloudTrail events
-│   │   ├── cost/                 # Cost Explorer (period/service)
+│   │   ├── cost/                 # Cost Explorer (period/service, MSP auto-detect)
+│   │   ├── inventory/            # Resource Inventory (count trends, cost impact)
 │   │   ├── iam/                  # IAM users/roles
 │   │   ├── security/             # Security findings
 │   │   ├── compliance/           # CIS v1.5~v4.0 benchmarks
 │   │   └── api/                  # API routes (ai, steampipe, code, benchmark)
 │   ├── components/               # 14 shared components (Sidebar, Charts, Table, K9s)
-│   ├── lib/steampipe.ts          # pg Pool (NOT CLI) — max 3, 120s timeout, 5min cache
-│   ├── lib/queries/              # 19 SQL query files (ec2, vpc, s3, rds, k8s, iam, cost...)
+│   ├── lib/steampipe.ts          # pg Pool (NOT CLI) — max 5, 120s timeout, 5min cache
+│   ├── lib/queries/              # 20 SQL query files (ec2, ebs, vpc, s3, rds, k8s, iam, cost...)
 │   └── types/aws.ts              # TypeScript type definitions
 ├── agent/                        # Strands Agent (Docker, arm64)
 │   ├── agent.py                  # Main entrypoint with dynamic gateway selection
