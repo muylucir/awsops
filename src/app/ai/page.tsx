@@ -241,27 +241,6 @@ export default function AIPage() {
                 ? 'bg-accent-cyan/10 border border-accent-cyan/20 text-gray-200'
                 : 'bg-navy-800 border border-navy-600 text-gray-300'
             }`}>
-              {/* 사용된 도구 표시 / Used tools indicator */}
-              {msg.usedTools && msg.usedTools.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                  <span className="text-[10px] text-gray-500 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent-green" />
-                    Tools used:
-                  </span>
-                  {msg.usedTools.map((tool, i) => (
-                    <span key={i} className="px-1.5 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan text-[10px] font-mono border border-accent-cyan/20">
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {/* Queried resources indicator */}
-              {msg.queriedResources && msg.queriedResources.length > 0 && (
-                <div className="flex items-center gap-1.5 mb-2 text-[10px] text-gray-500">
-                  <Database size={10} />
-                  Queried: {msg.queriedResources.join(', ')}
-                </div>
-              )}
               {/* Render markdown */}
               <div className="text-sm leading-relaxed break-words markdown-body">
                 <ReactMarkdown
@@ -310,6 +289,30 @@ export default function AIPage() {
                   >
                     {copiedIdx === i ? <><Check size={12} className="text-accent-green" /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
+                </div>
+              )}
+              {/* 하단: 사용된 도구 + Queried 리소스 / Bottom: Tools used + Queried resources */}
+              {msg.role === 'assistant' && ((msg.usedTools && msg.usedTools.length > 0) || (msg.queriedResources && msg.queriedResources.length > 0)) && (
+                <div className="mt-2 pt-2 border-t border-navy-600/30 space-y-1.5">
+                  {msg.usedTools && msg.usedTools.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent-green" />
+                        Tools:
+                      </span>
+                      {msg.usedTools.map((tool, ti) => (
+                        <span key={ti} className="px-1.5 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan text-[10px] font-mono border border-accent-cyan/20">
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {msg.queriedResources && msg.queriedResources.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                      <Database size={10} />
+                      Queried: {msg.queriedResources.join(', ')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
