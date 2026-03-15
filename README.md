@@ -1,4 +1,4 @@
-# AWSops Dashboard v1.5.0
+# AWSops Dashboard v1.5.1
 
 > AWS + Kubernetes Operations Dashboard — Steampipe, Next.js, Amazon Bedrock AgentCore
 > AWS + Kubernetes 운영 대시보드 — Steampipe, Next.js, Amazon Bedrock AgentCore
@@ -39,7 +39,7 @@
 │                                                                              │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
 │  │  Next.js :3000  │  │  Steampipe :9193 │  │  VSCode :8888             │  │
-│  │  (30 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
+│  │  (31 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
 │  │  (4 APIs)       │  │  aws / k8s / trivy│  │                           │  │
 │  └─────────────────┘  └──────────────────┘  └────────────────────────────┘  │
 │  ┌─────────────────┐  ┌──────────────────────────────────────────────────┐  │
@@ -66,7 +66,7 @@
 
 ## Features / 기능
 
-### 대시보드 페이지 (30개) / Dashboard Pages (30 pages)
+### 대시보드 페이지 (31개) / Dashboard Pages (31 pages)
 
 | Category | Page | Path | Features / 기능 |
 |----------|------|------|-----------------|
@@ -256,7 +256,7 @@ bash scripts/10-verify.sh       # Health check
 ```
 awsops/
 ├── src/
-│   ├── app/                      # 30 pages + 5 API routes
+│   ├── app/                      # 31 pages + 9 API routes
 │   │   ├── page.tsx              # Dashboard home (18 StatsCards)
 │   │   ├── ai/                   # AI Assistant (SSE streaming)
 │   │   ├── ec2/                  # EC2 instances
@@ -276,14 +276,14 @@ awsops/
 │   │   ├── monitoring/           # CPU/Memory/Network/Disk (date range)
 │   │   ├── cloudwatch/           # CloudWatch alarms
 │   │   ├── cloudtrail/           # CloudTrail events
-│   │   ├── opensearch/            # OpenSearch 도메인 (domains, encryption, VPC)
-│   │   ├── msk/                  # MSK Kafka 클러스터 (clusters, broker nodes, metrics)
+│   │   ├── opensearch/            # OpenSearch 도메인 (domains, encryption, VPC, CW metrics)
+│   │   ├── msk/                  # MSK Kafka 클러스터 (brokers, CW metrics: CPU/Memory/Net)
 │   │   ├── cost/                 # Cost Explorer (period/service, MSP auto-detect)
 │   │   ├── inventory/            # Resource Inventory (count trends, cost impact)
 │   │   ├── iam/                  # IAM users/roles
 │   │   ├── security/             # Security findings
 │   │   ├── compliance/           # CIS v1.5~v4.0 benchmarks
-│   │   └── api/                  # API routes (ai, steampipe, msk, code, benchmark)
+│   │   └── api/                  # 9 API routes (ai, steampipe, msk, rds, elasticache, opensearch, agentcore, code, benchmark)
 │   ├── components/               # 14 shared components (Sidebar, Charts, Table, K9s)
 │   ├── lib/steampipe.ts          # pg Pool (NOT CLI) — max 5, 120s timeout, 5min cache
 │   ├── lib/resource-inventory.ts  # 리소스 인벤토리 스냅샷 (resource snapshots)

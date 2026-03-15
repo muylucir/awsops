@@ -10,8 +10,8 @@ AWSops Dashboard is an AWS + Kubernetes operations dashboard providing real-time
 - **Styling**: Tailwind CSS dark navy theme with custom accent colors
 - **Charts**: Recharts for metrics visualization
 - **Topology**: React Flow for network topology diagrams
-- **페이지**: 30개 리소스 페이지 (EC2, EBS, S3, VPC, IAM, Lambda, RDS, ECS, MSK, OpenSearch, Inventory 등)
-  (30 resource pages)
+- **페이지**: 31개 리소스 페이지 (EC2, EBS, S3, VPC, IAM, Lambda, RDS, ECS, MSK, OpenSearch, Inventory 등)
+  (31 resource pages)
 
 ### Data Layer (`src/lib/`)
 - **Steampipe**: Embedded PostgreSQL on port 9193 — 380+ AWS tables, 60+ K8s tables
@@ -27,6 +27,8 @@ AWSops Dashboard is an AWS + Kubernetes operations dashboard providing real-time
 - **AgentCore**: Runtime (Strands) + 8 Gateways (125 MCP tools via 19 Lambda)
 - **Code Interpreter**: Sandboxed code execution for analysis
 - **Routing**: 10-route priority system (Code → Network → Container → IaC → Data → Security → Monitoring → Cost → AWS → General)
+- **CloudWatch Metrics API**: MSK, RDS, ElastiCache, OpenSearch — AWS CLI `cloudwatch get-metric-data`로 실시간 메트릭 조회
+  (Real-time metrics via AWS CLI for 4 data services)
 
 ### Auth & Delivery
 - **Auth**: Cognito User Pool + Lambda@Edge (Python 3.12, us-east-1)
