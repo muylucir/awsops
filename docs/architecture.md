@@ -29,6 +29,10 @@ AWSops Dashboard is an AWS + Kubernetes operations dashboard providing real-time
 - **Routing**: 10-route priority system (Code → Network → Container → IaC → Data → Security → Monitoring → Cost → AWS → General)
 - **CloudWatch Metrics API**: MSK, RDS, ElastiCache, OpenSearch — AWS CLI `cloudwatch get-metric-data`로 실시간 메트릭 조회
   (Real-time metrics via AWS CLI for 4 data services)
+- **Config 기반 설정**: `data/config.json`에서 `agentRuntimeArn`, `codeInterpreterName`, `costEnabled` 읽기 — 계정별 하드코딩 없음
+  (Config-based settings from data/config.json — no hardcoded account ARNs)
+- **AI 라우팅 전략**: 목록/현황/구성 분석 → `aws-data` (Steampipe SQL), 트러블슈팅/진단 → 전문 Gateway
+  (Routing strategy: listing/analysis → Steampipe SQL, troubleshooting → specialized Gateway)
 
 ### Auth & Delivery
 - **Auth**: Cognito User Pool + Lambda@Edge (Python 3.12, us-east-1)

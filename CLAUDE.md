@@ -70,8 +70,10 @@
 - `src/lib/cost-snapshot.ts` — Cost 데이터 스냅샷 폴백 (Cost data snapshot fallback)
 - `src/lib/app-config.ts` — 앱 설정 (costEnabled 등) (App config)
 - `src/app/api/ai/route.ts` — AI 라우팅 (AI routing, 10 routes + Code Interpreter)
-- `src/app/api/*/route.ts` — 9개 API 라우트: ai, steampipe, msk, rds, elasticache, opensearch, code, benchmark, agentcore
-  (9 API routes with CloudWatch metrics for MSK/RDS/ElastiCache/OpenSearch)
+- `src/app/api/*/route.ts` — 10개 API 라우트: ai, steampipe, auth, msk, rds, elasticache, opensearch, agentcore, code, benchmark
+  (10 API routes: AI routing, Steampipe, Auth logout, CW metrics for MSK/RDS/ElastiCache/OpenSearch)
+- AgentCore ARN/Code Interpreter는 `data/config.json`에서 읽음 — 계정별 하드코딩 없음
+  (AgentCore config from data/config.json — no hardcoded account ARNs)
 - `src/components/layout/Sidebar.tsx` — 네비게이션, 6개 그룹 (Navigation, 6 groups)
 - `infra-cdk/lib/awsops-stack.ts` — CDK 인프라 (VPC, EC2, ALB, CloudFront)
 - `infra-cdk/lib/cognito-stack.ts` — CDK Cognito (User Pool, Lambda@Edge)

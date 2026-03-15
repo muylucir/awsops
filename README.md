@@ -1,4 +1,4 @@
-# AWSops Dashboard v1.5.1
+# AWSops Dashboard v1.5.2
 
 > AWS + Kubernetes Operations Dashboard — Steampipe, Next.js, Amazon Bedrock AgentCore
 > AWS + Kubernetes 운영 대시보드 — Steampipe, Next.js, Amazon Bedrock AgentCore
@@ -256,7 +256,7 @@ bash scripts/10-verify.sh       # Health check
 ```
 awsops/
 ├── src/
-│   ├── app/                      # 31 pages + 9 API routes
+│   ├── app/                      # 31 pages + 10 API routes
 │   │   ├── page.tsx              # Dashboard home (18 StatsCards)
 │   │   ├── ai/                   # AI Assistant (SSE streaming)
 │   │   ├── ec2/                  # EC2 instances
@@ -283,7 +283,7 @@ awsops/
 │   │   ├── iam/                  # IAM users/roles
 │   │   ├── security/             # Security findings
 │   │   ├── compliance/           # CIS v1.5~v4.0 benchmarks
-│   │   └── api/                  # 9 API routes (ai, steampipe, msk, rds, elasticache, opensearch, agentcore, code, benchmark)
+│   │   └── api/                  # 10 API routes (ai, steampipe, auth, msk, rds, elasticache, opensearch, agentcore, code, benchmark)
 │   ├── components/               # 14 shared components (Sidebar, Charts, Table, K9s)
 │   ├── lib/steampipe.ts          # pg Pool (NOT CLI) — max 5, 120s timeout, 5min cache
 │   ├── lib/resource-inventory.ts  # 리소스 인벤토리 스냅샷 (resource snapshots)

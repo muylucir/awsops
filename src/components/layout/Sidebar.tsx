@@ -192,7 +192,7 @@ export default function Sidebar() {
           <span>Cost: {costEnabled ? 'ON' : 'OFF'}</span>
           <span className={`w-1.5 h-1.5 rounded-full ${costEnabled ? 'bg-accent-green' : 'bg-gray-600'}`} />
         </button>
-        <p className="text-xs text-gray-600 font-mono">v1.5.1</p>
+        <p className="text-xs text-gray-600 font-mono">v1.5.2</p>
       </div>
     </aside>
   );
