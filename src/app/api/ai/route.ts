@@ -737,9 +737,14 @@ export async function POST(request: NextRequest) {
               modelId, contentType: 'application/json', accept: 'application/json', body: encoder.encode(body),
             }));
             const result = JSON.parse(new TextDecoder().decode(response.body));
+            const sqlContent = result.content?.[0]?.text || 'No response';
+            const sqlTools = extractUsedTools(sqlContent);
+            // SQL 쿼리에서 테이블명도 도구로 추가 / Add table name from SQL as tool
+            if (sql) sqlTools.push(`steampipe: ${sql.match(/FROM\s+(\w+)/i)?.[1] || 'query'}`);
             send('done', {
-              content: result.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
+              content: sqlContent, model: modelKey || 'sonnet-4.6',
               via: `${config.display} (${queryResult.rowCount} rows)`, queriedResources: ['steampipe'], route,
+              usedTools: sqlTools,
             });
             controller.close();
             return;
@@ -800,9 +805,12 @@ export async function POST(request: NextRequest) {
                 body: encoder.encode(fallbackBody),
               }));
               const fallbackResult = JSON.parse(new TextDecoder().decode(fallbackResp.body));
+              const mfContent = fallbackResult.content?.[0]?.text || 'No response';
+              const mfTools = extractUsedTools(mfContent);
               send('done', {
-                content: fallbackResult.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
+                content: mfContent, model: modelKey || 'sonnet-4.6',
                 via: `Bedrock Direct (multi-route fallback: ${routes.join('+')} timed out)`, queriedResources: [], route, routes,
+                usedTools: mfTools,
               });
             } catch {
               send('error', { error: 'All routes and fallback failed' });
@@ -843,9 +851,12 @@ export async function POST(request: NextRequest) {
           modelId, contentType: 'application/json', accept: 'application/json', body: encoder.encode(body),
         }));
         const result = JSON.parse(new TextDecoder().decode(response.body));
+        const fallbackContent = result.content?.[0]?.text || 'No response';
+        const fallbackTools = extractUsedTools(fallbackContent);
         send('done', {
-          content: result.content?.[0]?.text || 'No response', model: modelKey || 'sonnet-4.6',
+          content: fallbackContent, model: modelKey || 'sonnet-4.6',
           via: `Bedrock Direct (fallback from ${config.display})`, queriedResources: [], route,
+          usedTools: fallbackTools,
         });
       } catch (err: any) {
         send('error', { error: err.message || 'AI request failed' });
