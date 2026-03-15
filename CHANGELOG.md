@@ -1,58 +1,88 @@
-# 변경 이력 / Changelog
+# 변경 이력
 
 AWSops 대시보드 프로젝트의 모든 주요 변경 사항을 기록합니다.
-(All notable changes to the AWSops Dashboard project.)
 
 ---
 
-## [1.5.0] - 2026-03-14
+## [1.5.2] - 2026-03-15
 
-### EBS 페이지 + Resource Inventory + Cost Explorer 가용성 / EBS Page + Resource Inventory + Cost Explorer Availability
+### 한국어
 
-#### 추가 / Added
-- **EBS 페이지** (`/ebs`): 볼륨/스냅샷 탭, 검색, 상세 패널
-  - 암호화 상태 (KMS Key 표시), 미암호화 경고
-  - EC2 어태치먼트 매핑 (인스턴스 이름/타입/상태/디바이스)
-  - 볼륨별 스냅샷 목록, Idle 볼륨 감지
-  - 6 StatsCards + 3 PieCharts (Type/State/Encryption)
-- **Resource Inventory 페이지** (`/inventory`): 18종 리소스 수량 추이 (PR #1)
-  - 멀티라인 통합 차트, Core/Other 토글, 30d/90d 기간 전환
-  - 비용 영향 추정 (Cost Impact Estimation)
-  - 추가 쿼리 0건 — 대시보드 기존 결과 재활용
-- **Cost Explorer 가용성 관리** (PR #1)
-  - 설치 시 Direct Payer vs MSP Payer 자동 판별 (`02-setup-nextjs.sh`)
-  - `data/config.json`에 `costEnabled` 영구 저장
-  - MSP 계정: Cost 메뉴 자동 숨김 + Sidebar footer에 Cost ON/OFF 토글
-  - Cost 스냅샷 폴백: `data/cost/`에 일별 저장, 장애 시 마지막 스냅샷 표시
-- **Dashboard**: EBS 카드 추가 (Network & Storage 행), 19→20 StatsCards
-- **Sidebar**: Storage & DB 그룹에 EBS 메뉴 추가
+#### 신규 페이지
+- **EBS** (`/ebs`): 볼륨/스냅샷, 암호화 상태, EC2 어태치먼트 매핑, Idle 볼륨 감지
+- **MSK** (`/msk`): Kafka 클러스터, 브로커 노드 테이블 (CPU/Memory/Network 메트릭), KRaft 컨트롤러
+- **OpenSearch** (`/opensearch`): 도메인, 암호화 (N2N/At-Rest), VPC, 클러스터 구성, EBS 스토리지
+- **Resource Inventory** (`/inventory`): 18종 리소스 수량 추이, 멀티라인 차트, 비용 영향 추정 (PR #1)
 
-#### 변경 / Changed
-- Dashboard 행 이름: "Network & Data" → "Network & Storage"
-- Dashboard 그리드: 6열 → 7열 (EBS 추가)
-- pool max: 3 → 5, batch size: 3 → 5
-- Resource Inventory: `ebsSummary`에서 EBS 매핑 (secSummary 중복 제거)
+#### CloudWatch 메트릭 테이블 (4개 서비스)
+- **MSK**: 브로커별 CPU/Memory/BytesIn/BytesOut 프로그레스 바 (API: `/api/msk`)
+- **RDS**: 인스턴스별 CPU/Free Memory/Connections/IOPS/Network/Storage (API: `/api/rds`)
+- **ElastiCache**: 노드별 CPU/Engine CPU/Free Memory/Network/Connections (API: `/api/elasticache`)
+- **OpenSearch**: 도메인별 CPU/JVM Memory/Cluster Status/Nodes/Documents/Search+Index Rate (API: `/api/opensearch`)
+- 4개 서비스 모두 동일 패턴: `cloudwatch get-metric-data` → 프로그레스 바 + 수치 테이블
 
-#### CloudWatch 메트릭 테이블 / CloudWatch Metrics Tables
-- **MSK**: 브로커 노드 CPU/Memory/Network 프로그레스 바 + KRaft 컨트롤러 (API: /api/msk)
-- **RDS**: 인스턴스별 CPU/Free Memory/Connections/IOPS/Network/Storage (API: /api/rds)
-- **ElastiCache**: 노드별 CPU/Engine CPU/Free Memory/Network/Connections (API: /api/elasticache)
-  - Valkey 카드 추가 (valkey/redis/memcached 엔진 구분 배지)
-- **OpenSearch**: 도메인별 CPU/JVM Memory/Cluster Status/Nodes/Documents/Search+Index Rate+Latency (API: /api/opensearch)
-- 4개 서비스 모두 동일 패턴: CloudWatch get-metric-data → 프로그레스 바 + 수치 테이블
+#### ElastiCache 강화
+- Valkey 엔진 카드 추가 (valkey/redis/memcached 구분 배지)
+- Cache Nodes 상세 테이블: 노드별 상태, AZ, 엔드포인트, 메트릭
 
-#### 인증 / Auth
-- **Sign Out 수정**: HttpOnly 쿠키를 서버 사이드 API(`POST /api/auth`)로 삭제 — `document.cookie`로 삭제 불가능했던 문제 해결
+#### Cost Explorer 가용성 관리 (PR #1)
+- 설치 시 Direct Payer vs MSP Payer 자동 판별 (`02-setup-nextjs.sh`)
+- `data/config.json`에 `costEnabled` 영구 저장 → MSP 계정에서 Cost 메뉴 자동 숨김
+- Cost 스냅샷 폴백: 장애 시 마지막 스냅샷 표시
 
-#### AI 라우팅 개선 / AI Routing Improvements
-- **AgentCore config 외부화**: `data/config.json`에서 `agentRuntimeArn`, `codeInterpreterName` 읽기 — 계정별 하드코딩 제거
-- **분류 정확도 개선**: "VPC 구성 분석" → `aws-data` (Steampipe SQL + Bedrock 분석), `network` 라우트는 Reachability/Flow Logs 등 전용 도구만
-- 목록/현황 질문 → `aws-data`, 트러블슈팅/진단 → 전문 Gateway
+#### 인증
+- **Sign Out 수정**: HttpOnly 쿠키를 서버 사이드 API(`POST /api/auth`)로 삭제
 
-#### 문서 / Docs
-- ADR-006: Cost Explorer 가용성 사전 감지
-- ADR-007: Resource Inventory 베이스라인
-- 전체 문서 동기화: CLAUDE.md, README.md, architecture.md 업데이트
+#### AI 라우팅 개선
+- AgentCore 설정 외부화: `data/config.json`에서 ARN 읽기 (하드코딩 제거)
+- 분류 개선: 목록/현황/구성 분석 → `aws-data` (Steampipe SQL), 트러블슈팅 → 전문 Gateway
+- 도구 사용 표시: 응답 내용 키워드 매칭으로 사용된 MCP 도구 추론 → UI 하단에 배지 표시
+- 멀티 라우트 실패 시 Bedrock Direct 폴백 추가, 타임아웃 60s → 90s
+
+#### 변경
+- Dashboard: EBS/MSK/OpenSearch 카드 추가 (Network & Storage 행, 9열)
+- pool max 3 → 5, batch size 3 → 5
+- ADR-006 (Cost 가용성), ADR-007 (Resource Inventory) 추가
+
+---
+
+### English
+
+#### New Pages
+- **EBS** (`/ebs`): Volumes/Snapshots, encryption status, EC2 attachment mapping, idle volume detection
+- **MSK** (`/msk`): Kafka clusters, broker node table (CPU/Memory/Network metrics), KRaft controllers
+- **OpenSearch** (`/opensearch`): Domains, encryption (N2N/At-Rest), VPC, cluster config, EBS storage
+- **Resource Inventory** (`/inventory`): 18 resource count trends, multi-line chart, cost impact estimation (PR #1)
+
+#### CloudWatch Metrics Tables (4 services)
+- **MSK**: Per-broker CPU/Memory/BytesIn/BytesOut progress bars (API: `/api/msk`)
+- **RDS**: Per-instance CPU/Free Memory/Connections/IOPS/Network/Storage (API: `/api/rds`)
+- **ElastiCache**: Per-node CPU/Engine CPU/Free Memory/Network/Connections (API: `/api/elasticache`)
+- **OpenSearch**: Per-domain CPU/JVM Memory/Cluster Status/Nodes/Documents/Search+Index Rate (API: `/api/opensearch`)
+- All 4 services follow same pattern: `cloudwatch get-metric-data` → progress bars + metric table
+
+#### ElastiCache Enhancement
+- Valkey engine card added (valkey/redis/memcached color badges)
+- Cache Nodes detail table: per-node status, AZ, endpoint, metrics
+
+#### Cost Explorer Availability (PR #1)
+- Install-time Direct Payer vs MSP Payer detection (`02-setup-nextjs.sh`)
+- `data/config.json` stores `costEnabled` → Cost menu auto-hidden for MSP accounts
+- Cost snapshot fallback: shows last snapshot on failure
+
+#### Auth
+- **Sign Out fix**: HttpOnly cookie cleared via server-side API (`POST /api/auth`)
+
+#### AI Routing Improvements
+- AgentCore config externalized: ARN from `data/config.json` (no hardcoded accounts)
+- Classification: listing/status/config analysis → `aws-data` (Steampipe SQL), troubleshooting → specialized Gateway
+- Tool usage display: infer used MCP tools from response keywords → show badges at bottom
+- Multi-route fallback to Bedrock Direct, timeout 60s → 90s
+
+#### Changed
+- Dashboard: EBS/MSK/OpenSearch cards added (Network & Storage row, 9 columns)
+- Pool max 3 → 5, batch size 3 → 5
+- ADR-006 (Cost availability), ADR-007 (Resource Inventory) added
 
 ---
 

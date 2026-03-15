@@ -1,14 +1,14 @@
-# AWSops Dashboard v1.5.2
+# AWSops 대시보드 v1.5.2
 
-> AWS + Kubernetes Operations Dashboard — Steampipe, Next.js, Amazon Bedrock AgentCore
-> AWS + Kubernetes 운영 대시보드 — Steampipe, Next.js, Amazon Bedrock AgentCore
+> Steampipe, Next.js 14, Amazon Bedrock AgentCore 기반 AWS + Kubernetes 운영 대시보드
 
-**Real-time AWS/K8s resource monitoring, network troubleshooting, CIS compliance, and AI-powered analysis in a single dashboard.**
-**실시간 AWS/K8s 리소스 모니터링, 네트워크 트러블슈팅, CIS 컴플라이언스, AI 분석을 단일 대시보드에서 제공합니다.**
+실시간 AWS/K8s 리소스 모니터링, 네트워크 트러블슈팅, CIS 컴플라이언스 스캔, AI 기반 분석을 단일 대시보드에서 제공합니다.
+
+**현황**: 31 페이지 · 46 라우트 · 22 쿼리 파일 · 10 API 라우트 · 125 MCP 도구 (8 Gateway) · 14 컴포넌트
 
 ---
 
-## Architecture / 아키텍처
+## 아키텍처
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -64,7 +64,7 @@
 
 ---
 
-## Features / 기능
+## 기능
 
 ### 대시보드 페이지 (31개) / Dashboard Pages (31 pages)
 
@@ -103,9 +103,9 @@
 
 ---
 
-## AI Assistant / AI 어시스턴트
+## AI 어시스턴트
 
-### 10-Route Classification / 10개 라우트 분류
+### 10단계 라우트 분류
 
 The AI classifier analyzes user questions and routes them to 1-3 optimal gateways in parallel, then synthesizes the results.
 AI 분류기가 사용자 질문을 분석하여 1~3개의 최적 게이트웨이로 병렬 라우팅한 후 결과를 통합합니다.
@@ -134,7 +134,7 @@ User Question / 사용자 질문
     |-- General questions       --> General --> Ops Gateway (9 tools) + Bedrock fallback
 ```
 
-### Models / 모델
+### 모델
 - **Claude Sonnet 4.6** (`global.anthropic.claude-sonnet-4-6`) — Fast responses / 빠른 응답 (default)
 - **Claude Opus 4.6** (`global.anthropic.claude-opus-4-6-v1`) — Deep analysis / 심층 분석
 
@@ -152,7 +152,7 @@ User Question / 사용자 질문
 | **Ops** | knowledge, core-mcp, steampipe-query | 9 | AWS docs, CLI execution, Steampipe SQL |
 | **Total** | **19 Targets** | **125** | |
 
-### Key AI Features / 주요 AI 기능
+### 주요 AI 기능
 - **Multi-route**: Classifier returns 1-3 routes, parallel gateway calls + synthesis / 1~3개 라우트 병렬 호출 + 결과 통합
 - **SSE streaming**: Real-time response delivery / 실시간 응답 전달
 - **Code Interpreter**: Python sandbox for calculations and visualizations / 계산 및 시각화용 Python 샌드박스
@@ -160,7 +160,7 @@ User Question / 사용자 질문
 
 ---
 
-## Data Flow / 데이터 흐름
+## 데이터 흐름
 
 ```
 ┌──────────┐     ┌─────────────────┐     ┌──────────────────────────────┐
@@ -185,22 +185,22 @@ User Question / 사용자 질문
 
 ---
 
-## Screenshots / 스크린샷
+## 스크린샷
 
 > TODO: Add screenshots of Dashboard, AI Assistant, Topology, CIS Compliance pages
 > TODO: 대시보드, AI 어시스턴트, 토폴로지, CIS 컴플라이언스 페이지 스크린샷 추가
 
 ---
 
-## Quick Start / 빠른 시작
+## 빠른 시작
 
-### Prerequisites / 사전 요구사항
+### 사전 요구사항
 - AWS Account (Admin access)
 - EC2 Instance (Amazon Linux 2023, t4g.2xlarge+)
 - AWS credentials configured
 - kubectl + kubeconfig (for K8s features / K8s 기능용)
 
-### Installation (10 Steps) / 설치 (10단계)
+### 설치 (10단계)
 
 ```bash
 # Step 0: Deploy CDK infrastructure (run from local machine)
@@ -241,7 +241,7 @@ bash scripts/06-setup-agentcore.sh           # 6a->6b->6c->6d->6e batch
 bash scripts/07-setup-cloudfront-auth.sh
 ```
 
-### Operations / 운영
+### 운영
 
 ```bash
 bash scripts/08-start-all.sh    # Start + status + URLs
@@ -251,7 +251,7 @@ bash scripts/10-verify.sh       # Health check
 
 ---
 
-## Project Structure / 프로젝트 구조
+## 프로젝트 구조
 
 ```
 awsops/
@@ -326,7 +326,7 @@ awsops/
 
 ---
 
-## Tech Stack / 기술 스택
+## 기술 스택
 
 | Layer | Technology |
 |-------|-----------|
@@ -341,7 +341,7 @@ awsops/
 
 ---
 
-## AWS Services Used / 사용된 AWS 서비스
+## 사용된 AWS 서비스
 
 | Service | Region | Purpose / 용도 |
 |---------|--------|----------------|
@@ -364,7 +364,7 @@ awsops/
 
 ---
 
-## Authentication / 인증
+## 인증
 
 | Method | Component |
 |--------|-----------|
@@ -375,7 +375,7 @@ awsops/
 
 ---
 
-## Known Issues & Solutions / 알려진 이슈 및 해결법
+## 알려진 이슈 및 해결법
 
 See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for details.
 자세한 내용은 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) 참조.
@@ -397,11 +397,29 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for details.
 
 ---
 
-## Documentation / 문서
+## 문서
 
-- [ARCHITECTURE.md](scripts/ARCHITECTURE.md) — Full architecture details / 전체 아키텍처 상세
-- [INSTALL_GUIDE.md](docs/INSTALL_GUIDE.md) — Installation guide / 설치 가이드
-- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — Known issues + solutions / 알려진 이슈 + 해결법
+- [ARCHITECTURE.md](scripts/ARCHITECTURE.md) — 전체 아키텍처 상세
+- [INSTALL_GUIDE.md](docs/INSTALL_GUIDE.md) — 설치 가이드
+- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — 알려진 이슈 + 해결법
+- [CHANGELOG.md](CHANGELOG.md) — 변경 이력
+
+---
+
+# AWSops Dashboard v1.5.2 (English)
+
+> AWS + Kubernetes Operations Dashboard — Steampipe, Next.js 14, Amazon Bedrock AgentCore
+
+Real-time AWS/K8s resource monitoring, network troubleshooting, CIS compliance scanning, and AI-powered analysis in a single dashboard.
+
+**Stats**: 31 pages · 46 routes · 22 query files · 10 API routes · 125 MCP tools (8 Gateways) · 14 components
+
+## Documentation
+
+- [ARCHITECTURE.md](scripts/ARCHITECTURE.md) — Full architecture details
+- [INSTALL_GUIDE.md](docs/INSTALL_GUIDE.md) — Installation guide
+- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — Known issues + solutions
+- [CHANGELOG.md](CHANGELOG.md) — Changelog
 
 ---
 
