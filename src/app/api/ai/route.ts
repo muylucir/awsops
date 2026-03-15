@@ -561,11 +561,17 @@ function extractUsedTools(rawResponse: string): string[] {
   // 2. "tool_name" 필드 / "tool_name" field
   const useRegex = /"tool_name"\s*:\s*"([^"]+)"/g;
   while ((m = useRegex.exec(rawResponse)) !== null) tools.add(m[1]);
-  // 3. 백틱으로 감싼 도구 이름 (응답 텍스트에서) / Backtick-wrapped tool names in response text
-  const backtickRegex = /`([a-z][a-z0-9_]+)`/g;
+  // 3. 백틱으로 감싼 도구 이름 / Backtick-wrapped tool names
+  const backtickRegex = /`([a-zA-Z][a-zA-Z0-9_]+)`/g;
   while ((m = backtickRegex.exec(rawResponse)) !== null) {
     if (KNOWN_TOOLS.has(m[1])) tools.add(m[1]);
   }
+  // 4. 백틱 없이 텍스트에 등장하는 알려진 도구 이름 / Known tool names without backticks
+  Array.from(KNOWN_TOOLS).forEach(toolName => {
+    if (toolName.length > 6 && rawResponse.includes(toolName)) {
+      tools.add(toolName);
+    }
+  });
   return Array.from(tools);
 }
 
