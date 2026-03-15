@@ -6,8 +6,8 @@
 ## 주요 파일 (14개)
 
 ### layout/ — 레이아웃 (2)
-- `layout/Sidebar.tsx` — 메인 네비게이션 (6개 그룹: Overview/Compute/Network & CDN/Storage & DB/Monitoring/Security)
-- `layout/Header.tsx` — 페이지 헤더 (새로고침, Sign Out)
+- `layout/Sidebar.tsx` — 메인 네비게이션 (6개 그룹) + Sign Out 버튼 (로고 우측)
+- `layout/Header.tsx` — 페이지 헤더 (새로고침, ONLINE 상태)
 
 ### dashboard/ — 대시보드 카드 (4)
 - `dashboard/StatsCard.tsx` — 통계 카드 (color prop: 이름 문자열)
@@ -30,7 +30,7 @@
 - 모든 컴포넌트는 `export default`
 - Tailwind 클래스는 테마 토큰 사용: navy-*, accent-*
 - color 속성은 hex가 아닌 이름 문자열: 'cyan', 'green', 'purple', 'orange', 'red', 'pink'
-- Sign Out: `POST /api/auth` (HttpOnly 쿠키 서버 사이드 삭제)
+- Sign Out: Sidebar 상단 로고 옆에 위치 → `POST /api/auth` (HttpOnly 쿠키 서버 사이드 삭제)
 
 ---
 
@@ -42,8 +42,8 @@ Shared React components across pages: layout, cards, charts, tables, K8s UI.
 ## Key Files (14)
 
 ### layout/ — Layout (2)
-- `layout/Sidebar.tsx` — Main navigation (6 groups: Overview/Compute/Network & CDN/Storage & DB/Monitoring/Security)
-- `layout/Header.tsx` — Page header (refresh, Sign Out)
+- `layout/Sidebar.tsx` — Main navigation (6 groups) + Sign Out button (next to logo)
+- `layout/Header.tsx` — Page header (refresh, ONLINE status)
 
 ### dashboard/ — Dashboard Cards (4)
 - `dashboard/StatsCard.tsx` — Stats card (color prop: name strings)
@@ -66,4 +66,4 @@ Shared React components across pages: layout, cards, charts, tables, K8s UI.
 - All components use `export default`
 - Tailwind classes use theme tokens: navy-*, accent-*
 - Color prop: name strings ('cyan', 'green', 'purple') not hex values
-- Sign Out: `POST /api/auth` (server-side HttpOnly cookie deletion)
+- Sign Out: in Sidebar next to logo → `POST /api/auth` (server-side HttpOnly cookie deletion)

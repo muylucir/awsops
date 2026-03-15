@@ -74,7 +74,10 @@ Steampipe, Next.js 14, Amazon Bedrock AgentCore로 구축.
 - `queries/*.ts` — 22개 SQL 쿼리 파일 (ebs, msk, opensearch 포함)
 - `resource-inventory.ts` — 리소스 인벤토리 스냅샷 (data/inventory/, 추가 쿼리 0건)
 - `cost-snapshot.ts` — Cost 데이터 스냅샷 폴백 (data/cost/)
-- `app-config.ts` — 앱 설정 (costEnabled, agentRuntimeArn, codeInterpreterName)
+- `app-config.ts` — 앱 설정 (costEnabled, agentRuntimeArn, codeInterpreterName, memoryId)
+- `agentcore-stats.ts` — AgentCore 호출 통계 (총 호출, 평균 응답시간, 게이트웨이별)
+- `agentcore-memory.ts` — 대화 이력 영구 저장/검색 (사용자별 분리, data/memory/)
+- `auth-utils.ts` — Cognito JWT에서 사용자 정보 추출 (email, sub)
 
 ### API 라우트 (`src/app/api/`, 10개)
 - `ai/route.ts` — AI 라우팅 (10 routes, 멀티 라우트, SSE 스트리밍, 도구 추론)
@@ -100,7 +103,9 @@ Steampipe, Next.js 14, Amazon Bedrock AgentCore로 구축.
 {
   "costEnabled": true,
   "agentRuntimeArn": "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/RUNTIME_ID",
-  "codeInterpreterName": "awsops_code_interpreter-XXXXX"
+  "codeInterpreterName": "awsops_code_interpreter-XXXXX",
+  "memoryId": "awsops_memory-XXXXX",
+  "memoryName": "awsops_memory"
 }
 ```
 계정별 배포 시 이 파일만 변경 — 코드 수정 불필요.
@@ -220,7 +225,10 @@ AWS + Kubernetes operations dashboard with real-time resource monitoring, networ
 - `queries/*.ts` — 22 SQL query files (incl. ebs, msk, opensearch)
 - `resource-inventory.ts` — Resource inventory snapshots (data/inventory/, zero extra queries)
 - `cost-snapshot.ts` — Cost data snapshot fallback (data/cost/)
-- `app-config.ts` — App config (costEnabled, agentRuntimeArn, codeInterpreterName)
+- `app-config.ts` — App config (costEnabled, agentRuntimeArn, codeInterpreterName, memoryId)
+- `agentcore-stats.ts` — AgentCore call stats (total calls, avg time, per-gateway)
+- `agentcore-memory.ts` — Conversation history persistence/search (per-user, data/memory/)
+- `auth-utils.ts` — Extract Cognito user info from JWT (email, sub)
 
 ### API Routes (`src/app/api/`, 10 routes)
 - `ai/route.ts` — AI routing (10 routes, multi-route, SSE streaming, tool inference)
@@ -246,7 +254,9 @@ AWS + Kubernetes operations dashboard with real-time resource monitoring, networ
 {
   "costEnabled": true,
   "agentRuntimeArn": "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/RUNTIME_ID",
-  "codeInterpreterName": "awsops_code_interpreter-XXXXX"
+  "codeInterpreterName": "awsops_code_interpreter-XXXXX",
+  "memoryId": "awsops_memory-XXXXX",
+  "memoryName": "awsops_memory"
 }
 ```
 Per-account deployment: only change this file — no code changes needed.
