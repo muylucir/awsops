@@ -3,6 +3,7 @@
 # 동적 게이트웨이 라우팅 + 최적화된 스킬 프롬프트
 import json
 import logging
+import os
 from strands import Agent
 from strands.models import BedrockModel
 from strands.tools.mcp.mcp_client import MCPClient
@@ -18,21 +19,49 @@ logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[l
 # Initialize AgentCore application / AgentCore 애플리케이션 초기화
 app = BedrockAgentCoreApp()
 
-# Gateway URLs by role / 역할별 게이트웨이 URL
-# 8 Gateways: network, container, iac, data, security, monitoring, cost, ops
-GATEWAYS = {
-    "network": "https://awsops-network-gateway-m7gnn58pzi.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "container": "https://awsops-container-gateway-saxxnzqyc9.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "ops": "https://awsops-ops-gateway-pxkzao9oqc.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "iac": "https://awsops-iac-gateway-gkgkro8s06.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "cost": "https://awsops-cost-gateway-sd3iflsjxm.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "monitoring": "https://awsops-monitoring-gateway-ouzu0kpyq0.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "security": "https://awsops-security-gateway-irksjlz54h.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-    "data": "https://awsops-data-gateway-j9ecawmxpr.gateway.bedrock-agentcore.ap-northeast-2.amazonaws.com/mcp",
-}
+# Gateway URLs — 시작 시 AWS CLI로 자동 감지, 환경변수 폴백
+# Gateway URLs — auto-detect via AWS CLI at startup, env var fallback
 DEFAULT_GATEWAY = "ops"
-GATEWAY_REGION = "ap-northeast-2"
+GATEWAY_REGION = os.environ.get("AWS_REGION", "ap-northeast-2")
 SERVICE = "bedrock-agentcore"
+
+def _discover_gateways():
+    """AWS CLI로 Gateway URL 자동 감지 / Auto-discover gateway URLs via AWS CLI"""
+    gateways = {}
+    try:
+        import subprocess, json as _json
+        result = subprocess.run(
+            ["aws", "bedrock-agentcore-control", "list-gateways", "--region", GATEWAY_REGION, "--output", "json"],
+            capture_output=True, text=True, timeout=15
+        )
+        items = _json.loads(result.stdout).get("items", [])
+        for g in items:
+            # awsops-network-gateway → network
+            short = g["name"].replace("awsops-", "").replace("-gateway", "")
+            gid = g["gatewayId"]
+            url = f"https://{gid}.gateway.{SERVICE}.{GATEWAY_REGION}.amazonaws.com/mcp"
+            gateways[short] = url
+        if gateways:
+            print(f"[Agent] Auto-discovered {len(gateways)} gateways: {list(gateways.keys())}")
+    except Exception as e:
+        print(f"[Agent] Gateway auto-discovery failed: {e}, using env GATEWAYS_JSON fallback")
+
+    # 환경변수 폴백: GATEWAYS_JSON='{"network":"https://...","ops":"https://..."}' / Env var fallback
+    if not gateways:
+        env_gw = os.environ.get("GATEWAYS_JSON", "")
+        if env_gw:
+            try:
+                import json as _json
+                gateways = _json.loads(env_gw)
+                print(f"[Agent] Loaded {len(gateways)} gateways from GATEWAYS_JSON env")
+            except:
+                pass
+
+    if not gateways:
+        print("[Agent] WARNING: No gateways discovered. Agent will run without MCP tools.")
+    return gateways
+
+GATEWAYS = _discover_gateways()
 
 # Bedrock Model / Bedrock 모델
 model = BedrockModel(

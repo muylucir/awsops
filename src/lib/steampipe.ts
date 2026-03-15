@@ -4,12 +4,18 @@ import { getConfig } from '@/lib/app-config';
 
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
+// Steampipe 비밀번호: config에서 읽기, 환경변수 폴백
+// Steampipe password: from config, env var fallback
+const spPassword = getConfig().steampipePassword
+  || process.env.STEAMPIPE_PASSWORD
+  || 'steampipe';
+
 const pool = new Pool({
   host: '127.0.0.1',
   port: 9193,
   database: 'steampipe',
   user: 'steampipe',
-  password: '6bbf_4c5e_89bb',
+  password: spPassword,
   max: 5,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 30000,

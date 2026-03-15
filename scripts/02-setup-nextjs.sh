@@ -79,20 +79,23 @@ echo "  Connection: postgres://steampipe:****@${PRIVATE_IP}:9193/steampipe"
 #     - batchQuery: 3 queries at a time (prevents pool starvation)
 #   See: docs/TROUBLESHOOTING.md #4 (Steampipe 성능)
 echo ""
-echo -e "${CYAN}[3/3] Syncing password to steampipe.ts...${NC}"
+echo -e "${CYAN}[3/3] Syncing password to data/config.json...${NC}"
 
-STEAMPIPE_FILE="$WORK_DIR/src/lib/steampipe.ts"
-if [ -f "$STEAMPIPE_FILE" ]; then
-    CURRENT_PW=$(grep "password:" "$STEAMPIPE_FILE" | head -1 | grep -oP "'[^']+'" | tr -d "'" || echo "")
-    if [ "$CURRENT_PW" != "$SP_PASSWORD" ] && [ -n "$SP_PASSWORD" ]; then
-        sed -i "s|password: '$CURRENT_PW'|password: '$SP_PASSWORD'|" "$STEAMPIPE_FILE"
-        echo -e "  ${GREEN}Updated password in steampipe.ts${NC}"
-    else
-        echo "  Password already matches - no update needed"
-    fi
+# steampipe.ts는 data/config.json에서 비밀번호를 읽음 (평문 하드코딩 제거)
+# steampipe.ts reads password from data/config.json (no more plaintext hardcoding)
+mkdir -p "$WORK_DIR/data"
+CONFIG_FILE="$WORK_DIR/data/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    python3 -c "
+import json
+cfg = json.load(open('${CONFIG_FILE}'))
+cfg['steampipePassword'] = '${SP_PASSWORD}'
+json.dump(cfg, open('${CONFIG_FILE}', 'w'), indent=2)
+"
+    echo -e "  ${GREEN}Updated steampipePassword in config.json${NC}"
 else
-    echo -e "${RED}ERROR: $STEAMPIPE_FILE not found${NC}"
-    exit 1
+    echo "{\"costEnabled\":true,\"steampipePassword\":\"${SP_PASSWORD}\"}" > "$CONFIG_FILE"
+    echo -e "  ${GREEN}Created config.json with steampipePassword${NC}"
 fi
 
 # -- [4/4] Detect account type: Direct Payer vs MSP Payer --------------------

@@ -6,8 +6,13 @@ import {
   StopCodeInterpreterSessionCommand,
 } from '@aws-sdk/client-bedrock-agentcore';
 
+import { getConfig } from '@/lib/app-config';
+
 const CODE_INTERPRETER_REGION = 'ap-northeast-2';
-const CODE_INTERPRETER_ID = 'awsops_code_interpreter-z8d1fmh5Nf';
+
+function getCodeInterpreterName(): string {
+  return getConfig().codeInterpreterName || '';
+}
 
 const client = new BedrockAgentCoreClient({ region: CODE_INTERPRETER_REGION });
 
@@ -35,7 +40,7 @@ export async function POST(request: NextRequest) {
     // 1. Start a Code Interpreter session
     const startResponse = await client.send(
       new StartCodeInterpreterSessionCommand({
-        codeInterpreterIdentifier: CODE_INTERPRETER_ID,
+        codeInterpreterIdentifier: getCodeInterpreterName(),
       })
     );
     sessionId = startResponse.sessionId;
@@ -50,7 +55,7 @@ export async function POST(request: NextRequest) {
     // 2. Execute code
     const invokeResponse = await client.send(
       new InvokeCodeInterpreterCommand({
-        codeInterpreterIdentifier: CODE_INTERPRETER_ID,
+        codeInterpreterIdentifier: getCodeInterpreterName(),
         sessionId,
         name: 'executeCode',
         arguments: { code, language: 'python' } as any,
@@ -130,7 +135,7 @@ async function stopSession(sessionId: string): Promise<void> {
   try {
     await client.send(
       new StopCodeInterpreterSessionCommand({
-        codeInterpreterIdentifier: CODE_INTERPRETER_ID,
+        codeInterpreterIdentifier: getCodeInterpreterName(),
         sessionId,
       })
     );

@@ -9,6 +9,7 @@ export interface AppConfig {
   codeInterpreterName?: string;
   memoryId?: string;
   memoryName?: string;
+  steampipePassword?: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = { costEnabled: true };
