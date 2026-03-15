@@ -3,13 +3,12 @@
 ## 역할
 Steampipe용 SQL 쿼리 정의. 각 파일은 특정 AWS/K8s 서비스에 대한 쿼리를 내보냄.
 
-> SQL query definitions for Steampipe. Each file exports queries for a specific AWS/K8s service.
-
 ## 주요 파일 (22개)
 - `ebs.ts` — EBS 볼륨/스냅샷 (암호화, 어태치먼트, 인스턴스 조회)
 - `ec2.ts` — EC2 인스턴스
 - `msk.ts` — MSK 클러스터 (`provisioned` JSONB에서 Kafka 버전/브로커/암호화 추출)
 - `opensearch.ts` — OpenSearch 도메인 (`encryption_at_rest_options`, 클러스터 구성)
+- `elasticache.ts` — ElastiCache 클러스터 (Valkey/Redis/Memcached, `cache_nodes` JSONB)
 - `vpc.ts` — VPC, Subnet, SG, Route Table, TGW, ELB, NAT, IGW
 - `s3.ts` — S3 버킷, 버전 관리, 퍼블릭 접근
 - `rds.ts` — RDS/Aurora 인스턴스
@@ -19,7 +18,6 @@ Steampipe용 SQL 쿼리 정의. 각 파일은 특정 AWS/K8s 서비스에 대한
 - `k8s.ts` — K8s 노드/Pod/Deployment/Service
 - `iam.ts` — IAM 사용자/역할/정책
 - `dynamodb.ts` — DynamoDB 테이블
-- `elasticache.ts` — ElastiCache 클러스터 (Valkey/Redis/Memcached, `cache_nodes` JSONB)
 - `cloudwatch.ts` — CloudWatch 알람
 - `cloudtrail.ts` — CloudTrail 이벤트
 - `cloudfront.ts` — CloudFront 배포
@@ -29,14 +27,46 @@ Steampipe용 SQL 쿼리 정의. 각 파일은 특정 AWS/K8s 서비스에 대한
 - `metrics.ts` — CloudWatch 메트릭 데이터 (모니터링 페이지)
 - `relationships.ts` — 리소스 관계 (토폴로지 그래프)
 
-> 22 SQL query files — one per AWS/K8s service
-> MSK: data in `provisioned` JSONB. OpenSearch: `encryption_at_rest_options`.
-> ElastiCache: `cache_nodes` JSONB, engine includes 'valkey'.
-
 ## 규칙
 - 쿼리 작성 전 `information_schema.columns`로 컬럼명 확인
-- `versioning_enabled` (S3), `class` AS alias (RDS), `trivy_scan_vulnerability`, `"group"` (ECS 예약어)
+- JSONB 중첩 주의: MSK `provisioned`, OpenSearch `encryption_at_rest_options`, ElastiCache `cache_nodes`
+- `versioning_enabled` (S3), `class` AS alias (RDS), `"group"` (ECS 예약어)
 - 목록 쿼리에서 SCP 차단 컬럼 사용 금지
 - SQL에서 `$` 사용 금지
 
-> Verify column names before writing queries. No SCP-blocked columns. No $ in SQL.
+---
+
+# Queries Module (English)
+
+## Role
+SQL query definitions for Steampipe. Each file exports queries for a specific AWS/K8s service.
+
+## Key Files (22)
+- `ebs.ts` — EBS volumes/snapshots (encryption, attachments, instance lookup)
+- `ec2.ts` — EC2 instances
+- `msk.ts` — MSK clusters (extract Kafka version/brokers/encryption from `provisioned` JSONB)
+- `opensearch.ts` — OpenSearch domains (`encryption_at_rest_options`, cluster config)
+- `elasticache.ts` — ElastiCache clusters (Valkey/Redis/Memcached, `cache_nodes` JSONB)
+- `vpc.ts` — VPC, Subnet, SG, Route Table, TGW, ELB, NAT, IGW
+- `s3.ts` — S3 buckets, versioning, public access
+- `rds.ts` — RDS/Aurora instances
+- `lambda.ts` — Lambda functions
+- `ecs.ts` — ECS clusters/services/tasks
+- `ecr.ts` — ECR repositories/images
+- `k8s.ts` — K8s nodes/pods/deployments/services
+- `iam.ts` — IAM users/roles/policies
+- `dynamodb.ts` — DynamoDB tables
+- `cloudwatch.ts` — CloudWatch alarms
+- `cloudtrail.ts` — CloudTrail events
+- `cloudfront.ts` — CloudFront distributions
+- `waf.ts` — WAF Web ACLs/rules
+- `cost.ts` — Cost Explorer cost/usage
+- `security.ts` — Security checks (Public S3, Open SGs, Unencrypted EBS, CVE)
+- `metrics.ts` — CloudWatch metric data (monitoring page)
+- `relationships.ts` — Resource relationships (topology graph)
+
+## Rules
+- Verify column names via `information_schema.columns` before writing queries
+- Watch JSONB nesting: MSK `provisioned`, OpenSearch `encryption_at_rest_options`, ElastiCache `cache_nodes`
+- `versioning_enabled` (S3), `class` AS alias (RDS), `"group"` (ECS reserved word)
+- Avoid SCP-blocked columns in list queries. No `$` in SQL.

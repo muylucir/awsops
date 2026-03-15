@@ -3,8 +3,6 @@
 ## 역할
 페이지 전반에 걸쳐 사용되는 공유 React 컴포넌트. 레이아웃, 카드, 차트, 테이블, K8s UI.
 
-> Shared React components: layout, cards, charts, tables, K8s UI.
-
 ## 주요 파일 (14개)
 
 ### layout/ — 레이아웃 (2)
@@ -26,13 +24,7 @@
 - `table/DataTable.tsx` — 범용 데이터 테이블 (정렬, render 함수)
 
 ### k8s/ — K8s 전용 (4)
-- `k8s/K9sResourceTable.tsx` — K9s 스타일 리소스 테이블
-- `k8s/K9sDetailPanel.tsx` — K9s 상세 패널
-- `k8s/K9sClusterHeader.tsx` — K9s 클러스터 헤더
-- `k8s/NamespaceFilter.tsx` — 네임스페이스 필터
-
-> 14 components: 2 layout, 4 dashboard, 3 charts, 1 table, 4 K8s
-> StatusBadge: only `status` prop (no `text` prop)
+- `k8s/K9sResourceTable.tsx`, `K9sDetailPanel.tsx`, `K9sClusterHeader.tsx`, `NamespaceFilter.tsx`
 
 ## 규칙
 - 모든 컴포넌트는 `export default`
@@ -40,5 +32,38 @@
 - color 속성은 hex가 아닌 이름 문자열: 'cyan', 'green', 'purple', 'orange', 'red', 'pink'
 - Sign Out: `POST /api/auth` (HttpOnly 쿠키 서버 사이드 삭제)
 
-> All components use export default. Color prop: names not hex.
-> Sign Out: POST /api/auth (server-side HttpOnly cookie deletion).
+---
+
+# Components Module (English)
+
+## Role
+Shared React components across pages: layout, cards, charts, tables, K8s UI.
+
+## Key Files (14)
+
+### layout/ — Layout (2)
+- `layout/Sidebar.tsx` — Main navigation (6 groups: Overview/Compute/Network & CDN/Storage & DB/Monitoring/Security)
+- `layout/Header.tsx` — Page header (refresh, Sign Out)
+
+### dashboard/ — Dashboard Cards (4)
+- `dashboard/StatsCard.tsx` — Stats card (color prop: name strings)
+- `dashboard/LiveResourceCard.tsx` — Live resource card
+- `dashboard/CategoryCard.tsx` — Category card
+- `dashboard/StatusBadge.tsx` — Status badge (`status` prop only — no `text` prop)
+
+### charts/ — Recharts Chart Wrappers (3)
+- `charts/BarChartCard.tsx` — Bar chart
+- `charts/LineChartCard.tsx` — Line chart
+- `charts/PieChartCard.tsx` — Pie chart
+
+### table/ — Data Table (1)
+- `table/DataTable.tsx` — Generic data table (sorting, render functions)
+
+### k8s/ — K8s Components (4)
+- `k8s/K9sResourceTable.tsx`, `K9sDetailPanel.tsx`, `K9sClusterHeader.tsx`, `NamespaceFilter.tsx`
+
+## Rules
+- All components use `export default`
+- Tailwind classes use theme tokens: navy-*, accent-*
+- Color prop: name strings ('cyan', 'green', 'purple') not hex values
+- Sign Out: `POST /api/auth` (server-side HttpOnly cookie deletion)
