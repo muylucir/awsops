@@ -1,41 +1,42 @@
-# 쿼리 모듈 / Queries Module
+# 쿼리 모듈
 
-## 역할 / Role
+## 역할
 Steampipe용 SQL 쿼리 정의. 각 파일은 특정 AWS/K8s 서비스에 대한 쿼리를 내보냄.
-(SQL query definitions for Steampipe. Each file exports queries for a specific AWS/K8s service.)
 
-## 주요 파일 (22 query files) / Key Files
-- `ebs.ts` — EBS 볼륨/스냅샷 (Volumes, snapshots, attachments, encryption)
-- `ec2.ts` — EC2 인스턴스 (Instances)
-- `msk.ts` — MSK 클러스터 (Kafka clusters, brokers, encryption)
-- `opensearch.ts` — OpenSearch 도메인 (Domains, cluster config, encryption, VPC)
+> SQL query definitions for Steampipe. Each file exports queries for a specific AWS/K8s service.
+
+## 주요 파일 (22개)
+- `ebs.ts` — EBS 볼륨/스냅샷 (암호화, 어태치먼트, 인스턴스 조회)
+- `ec2.ts` — EC2 인스턴스
+- `msk.ts` — MSK 클러스터 (`provisioned` JSONB에서 Kafka 버전/브로커/암호화 추출)
+- `opensearch.ts` — OpenSearch 도메인 (`encryption_at_rest_options`, 클러스터 구성)
 - `vpc.ts` — VPC, Subnet, SG, Route Table, TGW, ELB, NAT, IGW
-- `s3.ts` — S3 버킷, 버전 관리, 퍼블릭 접근 (Buckets, versioning, public access)
-- `rds.ts` — RDS/Aurora 인스턴스 (Instances)
-- `lambda.ts` — Lambda 함수 (Functions)
-- `ecs.ts` — ECS 클러스터/서비스/태스크 (Clusters, services, tasks)
-- `ecr.ts` — ECR 리포지토리/이미지 (Repositories, images)
-- `k8s.ts` — K8s 노드/Pod/Deployment/Service (Nodes, pods, deployments, services)
-- `iam.ts` — IAM 사용자/역할/정책 (Users, roles, policies)
-- `dynamodb.ts` — DynamoDB 테이블 (Tables)
-- `elasticache.ts` — ElastiCache 클러스터 (Clusters)
-- `cloudwatch.ts` — CloudWatch 알람 (Alarms)
-- `cloudtrail.ts` — CloudTrail 이벤트 (Events)
-- `cloudfront.ts` — CloudFront 배포 (Distributions)
-- `waf.ts` — WAF Web ACL/규칙 (Web ACLs, rules)
-- `cost.ts` — Cost Explorer 비용/사용량 (Cost and usage)
-- `security.ts` — 보안 점검 (Security checks: public S3, open SGs, unencrypted EBS, CVE)
-- `metrics.ts` — CloudWatch 메트릭 데이터 (Metric data for monitoring page)
-- `relationships.ts` — 리소스 관계 (Resource relationships for topology graph)
+- `s3.ts` — S3 버킷, 버전 관리, 퍼블릭 접근
+- `rds.ts` — RDS/Aurora 인스턴스
+- `lambda.ts` — Lambda 함수
+- `ecs.ts` — ECS 클러스터/서비스/태스크
+- `ecr.ts` — ECR 리포지토리/이미지
+- `k8s.ts` — K8s 노드/Pod/Deployment/Service
+- `iam.ts` — IAM 사용자/역할/정책
+- `dynamodb.ts` — DynamoDB 테이블
+- `elasticache.ts` — ElastiCache 클러스터 (Valkey/Redis/Memcached, `cache_nodes` JSONB)
+- `cloudwatch.ts` — CloudWatch 알람
+- `cloudtrail.ts` — CloudTrail 이벤트
+- `cloudfront.ts` — CloudFront 배포
+- `waf.ts` — WAF Web ACL/규칙
+- `cost.ts` — Cost Explorer 비용/사용량
+- `security.ts` — 보안 점검 (Public S3, Open SG, Unencrypted EBS, CVE)
+- `metrics.ts` — CloudWatch 메트릭 데이터 (모니터링 페이지)
+- `relationships.ts` — 리소스 관계 (토폴로지 그래프)
 
-## 규칙 / Rules
+> 22 SQL query files — one per AWS/K8s service
+> MSK: data in `provisioned` JSONB. OpenSearch: `encryption_at_rest_options`.
+> ElastiCache: `cache_nodes` JSONB, engine includes 'valkey'.
+
+## 규칙
 - 쿼리 작성 전 `information_schema.columns`로 컬럼명 확인
-  (Verify column names against `information_schema.columns` before writing queries)
-- `versioning_enabled` not `versioning` (S3)
-- `class` AS alias not `db_instance_class` (RDS)
-- `trivy_scan_vulnerability` not `trivy_vulnerability`
-- `"group"` AS alias (ECS 예약어 / ECS reserved word)
-- 목록 쿼리에서 사용 금지: `mfa_enabled`, `attached_policy_arns`, Lambda `tags` — SCP 차단
-  (Avoid in list queries — SCP blocks)
-- SQL에서 `$` 사용 금지 — `jsonb_path_exists` 대신 `conditions::text LIKE '%..%'` 사용
-  (No `$` in SQL — use `conditions::text LIKE '%..%'` instead of `jsonb_path_exists`)
+- `versioning_enabled` (S3), `class` AS alias (RDS), `trivy_scan_vulnerability`, `"group"` (ECS 예약어)
+- 목록 쿼리에서 SCP 차단 컬럼 사용 금지
+- SQL에서 `$` 사용 금지
+
+> Verify column names before writing queries. No SCP-blocked columns. No $ in SQL.
