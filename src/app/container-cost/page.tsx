@@ -46,6 +46,7 @@ export default function ContainerCostPage() {
   const [data, setData] = useState<ContainerCostData | null>(null);
   const [_loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showBasis, setShowBasis] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -208,6 +209,85 @@ export default function ContainerCostPage() {
           ]}
           data={data?.tasks}
         />
+      </div>
+
+      {/* Cost Calculation Basis / 비용 계산 근거 */}
+      <div className="bg-navy-800 rounded-lg p-4 border border-navy-600">
+        <button
+          onClick={() => setShowBasis(!showBasis)}
+          className="flex items-center gap-2 text-white font-medium w-full text-left"
+        >
+          <span className={`transition-transform ${showBasis ? 'rotate-90' : ''}`}>▶</span>
+          Cost Calculation Basis / 비용 계산 근거
+        </button>
+        {showBasis && (
+          <div className="mt-4 space-y-4 text-sm text-gray-300">
+            {/* Fargate Pricing / Fargate 가격 */}
+            <div>
+              <h4 className="text-cyan-400 font-medium mb-2">Fargate Pricing (ap-northeast-2)</h4>
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-navy-600 text-gray-400">
+                    <th className="py-1 pr-4">Resource / 리소스</th>
+                    <th className="py-1 pr-4">Unit Price / 단가</th>
+                    <th className="py-1">Billing Unit / 과금 단위</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-navy-700">
+                    <td className="py-1.5 pr-4">vCPU</td>
+                    <td className="py-1.5 pr-4 text-green-400 font-mono">$0.04048</td>
+                    <td className="py-1.5">per vCPU-hour</td>
+                  </tr>
+                  <tr className="border-b border-navy-700">
+                    <td className="py-1.5 pr-4">Memory</td>
+                    <td className="py-1.5 pr-4 text-green-400 font-mono">$0.004445</td>
+                    <td className="py-1.5">per GB-hour</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 pr-4">Ephemeral Storage (&gt;20GB)</td>
+                    <td className="py-1.5 pr-4 text-green-400 font-mono">$0.000111</td>
+                    <td className="py-1.5">per GB-hour</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Calculation Formula / 계산 공식 */}
+            <div>
+              <h4 className="text-cyan-400 font-medium mb-2">Calculation Formula / 계산 공식</h4>
+              <div className="bg-navy-900 rounded p-3 font-mono text-xs space-y-1">
+                <p><span className="text-purple-400">CPU Cost</span> = (CPU Units / 1024) x $0.04048/hr x 24hr</p>
+                <p><span className="text-purple-400">Memory Cost</span> = (Memory MB / 1024) x $0.004445/hr x 24hr</p>
+                <p><span className="text-yellow-400">Daily Cost</span> = CPU Cost + Memory Cost</p>
+                <p><span className="text-yellow-400">Monthly Estimate</span> = Daily Cost x 30</p>
+              </div>
+            </div>
+
+            {/* Example / 예시 */}
+            <div>
+              <h4 className="text-cyan-400 font-medium mb-2">Example / 예시</h4>
+              <div className="bg-navy-900 rounded p-3 text-xs space-y-1">
+                <p className="text-gray-400">Fargate Task: 512 CPU units (0.5 vCPU) + 1024 MB (1 GB)</p>
+                <p>CPU: 0.5 vCPU x $0.04048/hr x 24hr = <span className="text-green-400">$0.486/day</span></p>
+                <p>Memory: 1 GB x $0.004445/hr x 24hr = <span className="text-green-400">$0.107/day</span></p>
+                <p>Total: <span className="text-yellow-400 font-medium">$0.593/day ($17.78/month)</span></p>
+              </div>
+            </div>
+
+            {/* Notes / 참고 */}
+            <div>
+              <h4 className="text-cyan-400 font-medium mb-2">Notes / 참고</h4>
+              <ul className="list-disc list-inside space-y-1 text-gray-400">
+                <li>Fargate tasks: cost calculated from task definition CPU/Memory allocation (Fargate Task는 Task 정의의 CPU/Memory 할당 기준 계산)</li>
+                <li>EC2 launch type: requires node cost allocation — not supported in Phase 1 (EC2 타입은 노드 비용 분배 필요 — Phase 1 미지원)</li>
+                <li>Prices are configurable in <code className="text-cyan-400">data/config.json</code> (fargatePricing) (가격은 config.json에서 변경 가능)</li>
+                <li>Monthly estimate assumes 30-day continuous running (월 추정은 30일 연속 실행 가정)</li>
+                <li>Data source: AWS Fargate Pricing (ap-northeast-2, 2025) (데이터 출처: AWS Fargate 가격표)</li>
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* EKS Tab Placeholder (Phase 2) / EKS 탭 플레이스홀더 (2단계) */}
