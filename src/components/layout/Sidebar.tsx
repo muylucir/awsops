@@ -62,6 +62,7 @@ const navGroups: NavGroup[] = [
       { label: 'EKS', href: '/k8s', icon: Box },
       { label: 'EKS Explorer', href: '/k8s/explorer', icon: Terminal },
       { label: 'ECS Container Cost', href: '/container-cost', icon: DollarSign },
+      { label: 'EKS Container Cost', href: '/eks-container-cost', icon: DollarSign },
     ],
   },
   {
