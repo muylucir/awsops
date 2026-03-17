@@ -167,7 +167,7 @@ AWS + Kubernetes operations dashboard with real-time resource monitoring, networ
 - **Auth**: Cognito User Pool + Lambda@Edge (Python 3.12, us-east-1) + CloudFront
 - **Infra**: CDK → CloudFront (CACHING_DISABLED) → ALB → EC2 (t4g.2xlarge, Private Subnet)
 
-## Stats (v1.5.2)
+## Stats (v1.6.0)
 | Item | Count |
 |------|-------|
 | Pages | 34 |
@@ -225,7 +225,7 @@ AWS + Kubernetes operations dashboard with real-time resource monitoring, networ
 
 ### Core Libraries (`src/lib/`)
 - `steampipe.ts` — pg Pool + batchQuery + cache + checkCostAvailability
-- `queries/*.ts` — 22 SQL query files (incl. ebs, msk, opensearch)
+- `queries/*.ts` — 24 SQL query files (incl. ebs, msk, opensearch, container-cost, eks-container-cost)
 - `resource-inventory.ts` — Resource inventory snapshots (data/inventory/, zero extra queries)
 - `cost-snapshot.ts` — Cost data snapshot fallback (data/cost/)
 - `app-config.ts` — App config (costEnabled, agentRuntimeArn, codeInterpreterName, memoryId)

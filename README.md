@@ -41,8 +41,8 @@
 │                                                                              │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
 │  │  Next.js :3000  │  │  Steampipe :9193 │  │  VSCode :8888             │  │
-│  │  (31 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
-│  │  (4 APIs)       │  │  aws / k8s / trivy│  │                           │  │
+│  │  (34 Pages)     │──│  (Embedded PG)   │  │  (code-server)            │  │
+│  │  (12 APIs)      │  │  aws / k8s / trivy│  │                           │  │
 │  └─────────────────┘  └──────────────────┘  └────────────────────────────┘  │
 │  ┌─────────────────┐  ┌──────────────────────────────────────────────────┐  │
 │  │  Powerpipe      │  │  Docker (빌드 전용, 실행은 AgentCore 서비스)   │  │
@@ -68,7 +68,7 @@
 
 ## 기능
 
-### 대시보드 페이지 (31개) / Dashboard Pages (31 pages)
+### 대시보드 페이지 (34개) / Dashboard Pages (34 pages)
 
 | Category | Page | Path | Features / 기능 |
 |----------|------|------|-----------------|
@@ -172,7 +172,7 @@ User Question / 사용자 질문
 ┌──────────┐     ┌─────────────────┐     ┌──────────────────────────────┐
 │ Browser  │     │ Next.js :3000   │     │ Steampipe (Embedded PG)     │
 │          │────>│ POST /awsops/   │────>│ :9193                        │
-│ 27 Pages │     │  api/steampipe  │     │                              │
+│ 34 Pages │     │  api/steampipe  │     │                              │
 │ Charts   │     │ batchQuery()    │     │ |- aws (380+ tables)  -> AWS API
 │ Tables   │<────│ 3 sequential    │<────│ |- k8s (60+ tables)   -> K8s API
 │          │     │ 5min TTL cache  │     │ |- trivy              -> CVE DB
