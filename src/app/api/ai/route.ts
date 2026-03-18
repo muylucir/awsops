@@ -253,7 +253,7 @@ Respond in the same language as the user's question.`;
 // ============================================================================
 // Intent classification / 의도 분류
 // ============================================================================
-async function classifyIntent(messages: Array<{role: string; content: string}>): Promise<RouteType[]> {
+async function classifyIntent(messages: Array<{role: string; content: string}>): Promise<{ routes: RouteType[]; inputTokens: number; outputTokens: number }> {
   try {
     const recentMessages = messages.slice(-10);
     const body = JSON.stringify({
@@ -272,6 +272,7 @@ async function classifyIntent(messages: Array<{role: string; content: string}>):
 
     const result = JSON.parse(new TextDecoder().decode(response.body));
     const text = result.content?.[0]?.text || '';
+    const usage = { inputTokens: result.usage?.input_tokens || 0, outputTokens: result.usage?.output_tokens || 0 };
 
     // Parse multi-route: {"routes": ["network", "cost"]} / 멀티 라우트 파싱
     const multiMatch = text.match(/\{[^}]*"routes"\s*:\s*\[([^\]]+)\][^}]*\}/);
@@ -280,7 +281,7 @@ async function classifyIntent(messages: Array<{role: string; content: string}>):
       const valid = routes.filter((r: string) => VALID_ROUTES.includes(r as RouteType)).slice(0, 3) as RouteType[];
       if (valid.length > 0) {
         console.log(`[Intent] Classified as: ${valid.join(', ')}`);
-        return valid;
+        return { routes: valid, ...usage };
       }
     }
 
@@ -288,14 +289,14 @@ async function classifyIntent(messages: Array<{role: string; content: string}>):
     const singleMatch = text.match(/\{[^}]*"route"\s*:\s*"([^"]+)"[^}]*\}/);
     if (singleMatch && VALID_ROUTES.includes(singleMatch[1] as RouteType)) {
       console.log(`[Intent] Classified as: ${singleMatch[1]}`);
-      return [singleMatch[1] as RouteType];
+      return { routes: [singleMatch[1] as RouteType], ...usage };
     }
 
     console.warn(`[Intent] Could not parse: ${text}, fallback to general`);
-    return ['general'];
+    return { routes: ['general'], ...usage };
   } catch (err: any) {
     console.error(`[Intent] Failed: ${err.message}, fallback to general`);
-    return ['general'];
+    return { routes: ['general'], inputTokens: 0, outputTokens: 0 };
   }
 }
 
@@ -670,11 +671,17 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(sseEvent(event, data)));
       };
       const callStartTime = Date.now();
+      // Token accumulator / 토큰 누적기
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
 
       try {
         // Step 1: Classify intent (multi-route) / 1단계: 의도 분류 (멀티 라우트)
         send('status', { step: 'classifying', message: '🔍 질문 분석 중...' });
-        const routes = await classifyIntent(messages);
+        const classifyResult = await classifyIntent(messages);
+        const routes = classifyResult.routes;
+        totalInputTokens += classifyResult.inputTokens;
+        totalOutputTokens += classifyResult.outputTokens;
         const route = routes[0];
         const config = ROUTE_REGISTRY[route];
         const lastMessage = messages[messages.length - 1]?.content || '';
@@ -699,7 +706,9 @@ export async function POST(request: NextRequest) {
           const aiResponse = await bedrockClient.send(new InvokeModelCommand({
             modelId, contentType: 'application/json', accept: 'application/json', body: encoder.encode(body),
           }));
-          const aiText = JSON.parse(new TextDecoder().decode(aiResponse.body)).content?.[0]?.text || '';
+          const aiResult = JSON.parse(new TextDecoder().decode(aiResponse.body));
+          const aiText = aiResult.content?.[0]?.text || '';
+          if (aiResult.usage) { totalInputTokens += aiResult.usage.input_tokens || 0; totalOutputTokens += aiResult.usage.output_tokens || 0; }
           const pythonCode = extractPythonCode(aiText) || extractPythonCode(lastMessage);
 
           if (pythonCode) {
@@ -709,11 +718,13 @@ export async function POST(request: NextRequest) {
             send('done', {
               content: aiText + executionBlock, model: modelKey || 'sonnet-4.6',
               via: `Bedrock + ${config.display}`, queriedResources: ['code-interpreter'], route,
+              inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
           } else {
             send('done', {
               content: aiText, model: modelKey || 'sonnet-4.6',
               via: 'Bedrock (code request)', queriedResources: [], route,
+              inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
           }
           controller.close();
@@ -754,6 +765,7 @@ export async function POST(request: NextRequest) {
               modelId, contentType: 'application/json', accept: 'application/json', body: encoder.encode(body),
             }));
             const result = JSON.parse(new TextDecoder().decode(response.body));
+            if (result.usage) { totalInputTokens += result.usage.input_tokens || 0; totalOutputTokens += result.usage.output_tokens || 0; }
             const sqlContent = result.content?.[0]?.text || 'No response';
             const sqlTools = extractUsedTools(sqlContent);
             if (sql) sqlTools.push(`steampipe: ${sql.match(/FROM\s+(\w+)/i)?.[1] || 'query'}`);
@@ -763,6 +775,7 @@ export async function POST(request: NextRequest) {
               content: sqlContent, model: modelKey || 'sonnet-4.6',
               via: `${config.display} (${queryResult.rowCount} rows)`, queriedResources: ['steampipe'], route,
               usedTools: sqlTools,
+              inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
             controller.close();
             return;
@@ -813,12 +826,14 @@ export async function POST(request: NextRequest) {
               content: synthesized, model: modelKey || 'sonnet-4.6',
               via: `Multi-Route: ${viaList}`, queriedResources: allResources, route, routes,
               usedTools: finalTools,
+              inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
           } else if (successful.length === 1) {
             send('done', {
               content: successful[0].content, model: modelKey || 'sonnet-4.6',
               via: successful[0].via, queriedResources: allResources, route, routes,
               usedTools: dedupedTools,
+              inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
           } else {
             // 모든 Gateway 실패 → Bedrock Direct 폴백 / All gateways failed → Bedrock Direct fallback
@@ -834,12 +849,14 @@ export async function POST(request: NextRequest) {
                 body: encoder.encode(fallbackBody),
               }));
               const fallbackResult = JSON.parse(new TextDecoder().decode(fallbackResp.body));
+              if (fallbackResult.usage) { totalInputTokens += fallbackResult.usage.input_tokens || 0; totalOutputTokens += fallbackResult.usage.output_tokens || 0; }
               const mfContent = fallbackResult.content?.[0]?.text || 'No response';
               const mfTools = extractUsedTools(mfContent);
               send('done', {
                 content: mfContent, model: modelKey || 'sonnet-4.6',
                 via: `Bedrock Direct (multi-route fallback: ${routes.join('+')} timed out)`, queriedResources: [], route, routes,
                 usedTools: mfTools,
+                inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
               });
             } catch {
               send('error', { error: 'All routes and fallback failed' });
@@ -877,6 +894,7 @@ export async function POST(request: NextRequest) {
             content: finalContent, model: 'sonnet-4.6',
             via: `AgentCore → ${config.display}`, queriedResources: [`${gateway}-gateway`], route, routes,
             usedTools,
+            inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
           });
           controller.close();
           return;
@@ -893,6 +911,7 @@ export async function POST(request: NextRequest) {
           modelId, contentType: 'application/json', accept: 'application/json', body: encoder.encode(body),
         }));
         const result = JSON.parse(new TextDecoder().decode(response.body));
+        if (result.usage) { totalInputTokens += result.usage.input_tokens || 0; totalOutputTokens += result.usage.output_tokens || 0; }
         const fallbackContent = result.content?.[0]?.text || 'No response';
         const fallbackTools = extractUsedTools(fallbackContent);
         const fbTimeMs = Date.now() - callStartTime;
@@ -901,6 +920,7 @@ export async function POST(request: NextRequest) {
           content: fallbackContent, model: modelKey || 'sonnet-4.6',
           via: `Bedrock Direct (fallback from ${config.display})`, queriedResources: [], route,
           usedTools: fallbackTools,
+          inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
         });
       } catch (err: any) {
         send('error', { error: err.message || 'AI request failed' });
@@ -1021,7 +1041,8 @@ async function synthesizeResponses(
 // ============================================================================
 async function handleNonStreaming(messages: Array<{role: string; content: string}>, modelKey?: string) {
   try {
-    const routes = await classifyIntent(messages);
+    const classifyResult = await classifyIntent(messages);
+    const routes = classifyResult.routes;
     const primaryRoute = routes[0];
     const _primaryConfig = ROUTE_REGISTRY[primaryRoute];
 
