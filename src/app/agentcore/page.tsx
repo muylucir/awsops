@@ -84,25 +84,25 @@ export default function AgentCorePage() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatsCard label={t('agentcore.totalCalls')} value={stats.totalCalls} icon={BarChart3} color="cyan"
-              change={`${stats.successCalls} 성공 · ${stats.failedCalls} 실패`} />
+              change={t('agentcore.successFail', { success: stats.successCalls, fail: stats.failedCalls })} />
             <StatsCard label={t('agentcore.avgResponseTime')} value={`${(stats.avgResponseTimeMs / 1000).toFixed(1)}s`} icon={Clock} color="purple"
-              change={stats.totalCalls > 0 ? `${stats.totalCalls}건 평균` : ''} />
-            <StatsCard label="사용된 도구" value={stats.uniqueToolsUsed?.length || 0} icon={Wrench} color="green"
-              change={`총 ${stats.totalToolsUsed || 0}회 호출`} />
-            <StatsCard label="성공률" value={`${stats.totalCalls > 0 ? ((stats.successCalls / stats.totalCalls) * 100).toFixed(0) : 0}%`} icon={Activity}
+              change={stats.totalCalls > 0 ? t('agentcore.avgOf', { count: stats.totalCalls }) : ''} />
+            <StatsCard label={t('agentcore.usedTools')} value={stats.uniqueToolsUsed?.length || 0} icon={Wrench} color="green"
+              change={t('agentcore.totalToolCalls', { count: stats.totalToolsUsed || 0 })} />
+            <StatsCard label={t('agentcore.successRate')} value={`${stats.totalCalls > 0 ? ((stats.successCalls / stats.totalCalls) * 100).toFixed(0) : 0}%`} icon={Activity}
               color={stats.successCalls / stats.totalCalls >= 0.8 ? 'green' : 'orange'}
               change={`${stats.successCalls}/${stats.totalCalls}`} />
-            <StatsCard label="멀티 라우트" value={Object.keys(stats.callsByGateway || {}).filter(k => k.startsWith('multi:')).length > 0 ? Object.entries(stats.callsByGateway || {}).filter(([k]) => k.startsWith('multi:')).reduce((s, [, v]) => s + (v as number), 0) : 0} icon={Wifi} color="orange"
-              change="병렬 Gateway 호출" />
-            <StatsCard label="Steampipe SQL" value={stats.callsByGateway?.steampipe || 0} icon={Database} color="cyan"
-              change="aws-data 라우트" />
+            <StatsCard label={t('agentcore.multiRoute')} value={Object.keys(stats.callsByGateway || {}).filter(k => k.startsWith('multi:')).length > 0 ? Object.entries(stats.callsByGateway || {}).filter(([k]) => k.startsWith('multi:')).reduce((s, [, v]) => s + (v as number), 0) : 0} icon={Wifi} color="orange"
+              change={t('agentcore.parallelGateway')} />
+            <StatsCard label={t('agentcore.steampipeSql')} value={stats.callsByGateway?.steampipe || 0} icon={Database} color="cyan"
+              change={t('agentcore.awsDataRoute')} />
           </div>
 
           {/* 라우트별 호출 분포 / Calls by route */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
               <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <BarChart3 size={16} className="text-accent-cyan" /> 라우트별 호출 수
+                <BarChart3 size={16} className="text-accent-cyan" /> {t('agentcore.callsByRoute')}
               </h3>
               <div className="space-y-2">
                 {Object.entries(stats.callsByRoute || {}).sort(([, a], [, b]) => (b as number) - (a as number)).map(([route, count]) => {
@@ -123,7 +123,7 @@ export default function AgentCorePage() {
             {/* 최근 호출 / Recent calls */}
             <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
               <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <Clock size={16} className="text-accent-cyan" /> 최근 호출 (최대 10건)
+                <Clock size={16} className="text-accent-cyan" /> {t('agentcore.recentCalls')}
               </h3>
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {(stats.recentCalls || []).slice(0, 10).map((call: any, i: number) => (
@@ -142,7 +142,7 @@ export default function AgentCorePage() {
                   </div>
                 ))}
                 {(!stats.recentCalls || stats.recentCalls.length === 0) && (
-                  <p className="text-gray-500 text-center py-3">아직 호출 기록이 없습니다</p>
+                  <p className="text-gray-500 text-center py-3">{t('agentcore.noCallHistory')}</p>
                 )}
               </div>
             </div>
@@ -206,7 +206,7 @@ export default function AgentCorePage() {
       <div className="bg-navy-800 rounded-lg border border-navy-600 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <MessageSquare size={16} className="text-accent-cyan" /> {t('agentcore.conversationHistory')} ({conversations.length})
+            <MessageSquare size={16} className="text-accent-cyan" /> {t('agentcore.conversationHistory')} ({t('agentcore.historyCount', { count: conversations.length })})
           </h3>
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -218,7 +218,7 @@ export default function AgentCorePage() {
             </div>
             <button onClick={searchMemory}
               className="px-3 py-1.5 text-xs bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/20 rounded-lg hover:bg-accent-cyan/20 transition-colors">
-              검색
+              {t('agentcore.searchBtn')}
             </button>
           </div>
         </div>
