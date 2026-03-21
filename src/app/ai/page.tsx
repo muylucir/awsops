@@ -90,7 +90,7 @@ export default function AIPage() {
     setMessages(newMessages);
     setInput('');
     setLoading(true);
-    setStatusMessage('🔍 질문 분석 중...');
+    setStatusMessage(`🔍 ${t('ai.analyzing')}`);
     const startTime = Date.now();
 
     try {
@@ -186,27 +186,27 @@ export default function AIPage() {
   };
 
   const suggestions = [
-    'EC2 인스턴스 현황을 알려줘',
-    'VPC 네트워크 구성을 분석해줘',
-    'RDS 데이터베이스 상태를 확인해줘',
-    '보안 이슈가 있는지 확인해줘',
-    '현재 비용 현황을 보여줘',
-    'EKS 클러스터 상태를 알려줘',
-    '전체 리소스 현황을 요약해줘',
+    t('ai.suggestion1'),
+    t('ai.suggestion2'),
+    t('ai.suggestion3'),
+    t('ai.suggestion4'),
+    t('ai.suggestion5'),
+    t('ai.suggestion6'),
+    t('ai.suggestion7'),
   ];
 
   // Follow-up suggestions by route / 라우트별 연관 추천 질문
   const followUpMap: Record<string, string[]> = {
-    security: ['IAM 사용자 목록과 Access Key 상태를 보여줘', 'MFA가 설정되지 않은 사용자가 있는지 확인해줘', '보안그룹 중 0.0.0.0/0 인바운드가 있는지 확인해줘'],
-    network: ['VPC 서브넷과 라우트 테이블을 보여줘', 'NAT Gateway 상태를 확인해줘', 'Transit Gateway 라우팅을 분석해줘'],
-    container: ['EKS 노드의 CPU/메모리 사용률을 확인해줘', 'ECS 서비스 상태를 보여줘', 'Istio 서비스 메시 현황을 알려줘'],
-    cost: ['서비스별 비용을 비교해줘', '전월 대비 비용 증가 원인을 분석해줘', '비용 최적화 방안을 추천해줘'],
-    monitoring: ['CloudWatch 로그 그룹 목록을 보여줘', '최근 CloudTrail 이벤트를 조회해줘', 'EC2 메모리 사용량 추세를 보여줘'],
-    data: ['DynamoDB 테이블 상세를 확인해줘', 'RDS 스냅샷 목록을 보여줘', 'ElastiCache 모범사례를 알려줘'],
-    'aws-data': ['Lambda 함수 목록과 런타임을 알려줘', 'S3 버킷 중 공개 접근 가능한 것이 있는지 확인해줘', '전체 리소스 요약을 보여줘'],
-    iac: ['Terraform VPC 모듈을 검색해줘', 'CDK로 Lambda 배포하는 방법을 알려줘', 'CloudFormation 스택 상태를 확인해줘'],
-    code: ['AWS 비용 데이터를 차트로 시각화해줘', '랜덤 숫자 통계를 계산해줘', 'JSON 데이터를 파싱하는 코드를 만들어줘'],
-    general: ['서울 리전에서 사용 가능한 서비스를 확인해줘', 'ECS와 EKS 차이점을 알려줘', '서버리스 아키텍처를 추천해줘'],
+    security: [t('ai.followup.security1'), t('ai.followup.security2'), t('ai.followup.security3')],
+    network: [t('ai.followup.network1'), t('ai.followup.network2'), t('ai.followup.network3')],
+    container: [t('ai.followup.container1'), t('ai.followup.container2'), t('ai.followup.container3')],
+    cost: [t('ai.followup.cost1'), t('ai.followup.cost2'), t('ai.followup.cost3')],
+    monitoring: [t('ai.followup.monitoring1'), t('ai.followup.monitoring2'), t('ai.followup.monitoring3')],
+    data: [t('ai.followup.data1'), t('ai.followup.data2'), t('ai.followup.data3')],
+    'aws-data': [t('ai.followup.awsdata1'), t('ai.followup.awsdata2'), t('ai.followup.awsdata3')],
+    iac: [t('ai.followup.iac1'), t('ai.followup.iac2'), t('ai.followup.iac3')],
+    code: [t('ai.followup.code1'), t('ai.followup.code2'), t('ai.followup.code3')],
+    general: [t('ai.followup.general1'), t('ai.followup.general2'), t('ai.followup.general3')],
   };
 
   // Get follow-up suggestions from last assistant message / 마지막 응답의 라우트에서 추천 질문 가져오기
@@ -229,7 +229,7 @@ export default function AIPage() {
           </select>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-green/10 text-accent-green border border-accent-green/20">
             <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
-            ONLINE
+            {t('common.online')}
           </span>
         </div>
       </header>
@@ -242,9 +242,9 @@ export default function AIPage() {
             <div className="p-4 rounded-2xl bg-accent-cyan/10 mb-4">
               <Sparkles size={40} className="text-accent-cyan" />
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2">{t('ai.title')}</h2>
-            <p className="text-sm text-gray-400 text-center mb-2">AWS 인프라에 대해 질문하세요.</p>
-            <p className="text-sm text-gray-400 text-center mb-6">Amazon Bedrock AgentCore가 LLM과 Tools를 활용해 답변을 드립니다.</p>
+            <h2 className="text-xl font-semibold text-white mb-2">{t('ai.welcomeTitle')}</h2>
+            <p className="text-sm text-gray-400 text-center mb-2">{t('ai.welcomeDesc1')}</p>
+            <p className="text-sm text-gray-400 text-center mb-6">{t('ai.welcomeDesc2')}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl w-full">
               {suggestions.map((s, i) => (
                 <button key={i} onClick={() => { setInput(s); inputRef.current?.focus(); }}
@@ -315,7 +315,7 @@ export default function AIPage() {
                     className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent-cyan transition-colors px-2 py-1 rounded hover:bg-navy-900"
                     title="Copy to clipboard"
                   >
-                    {copiedIdx === i ? <><Check size={12} className="text-accent-green" /> Copied</> : <><Copy size={12} /> Copy</>}
+                    {copiedIdx === i ? <><Check size={12} className="text-accent-green" /> {t('ai.copied')}</> : <><Copy size={12} /> {t('ai.copy')}</>}
                   </button>
                 </div>
               )}
@@ -326,7 +326,7 @@ export default function AIPage() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] text-gray-500 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-accent-green" />
-                        Tools:
+                        {t('ai.tools')}
                       </span>
                       {msg.usedTools.map((tool, ti) => (
                         <span key={ti} className="px-1.5 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan text-[10px] font-mono border border-accent-cyan/20">
@@ -338,7 +338,7 @@ export default function AIPage() {
                   {msg.queriedResources && msg.queriedResources.length > 0 && (
                     <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
                       <Database size={10} />
-                      Queried: {msg.queriedResources.join(', ')}
+                      {t('ai.queried')} {msg.queriedResources.join(', ')}
                     </div>
                   )}
                 </div>
@@ -346,11 +346,11 @@ export default function AIPage() {
               {/* Token usage & cost / 토큰 사용량 및 비용 */}
               {msg.role === 'assistant' && (msg.inputTokens || msg.outputTokens) && (
                 <div className="mt-2 pt-2 border-t border-navy-600/30 flex items-center gap-3 text-[10px] font-mono text-gray-500">
-                  <span className="text-gray-600">Tokens:</span>
-                  <span>In <span className="text-accent-cyan">{(msg.inputTokens || 0).toLocaleString()}</span></span>
-                  <span>Out <span className="text-accent-green">{(msg.outputTokens || 0).toLocaleString()}</span></span>
+                  <span className="text-gray-600">{t('ai.tokens')}</span>
+                  <span>{t('ai.in')} <span className="text-accent-cyan">{(msg.inputTokens || 0).toLocaleString()}</span></span>
+                  <span>{t('ai.out')} <span className="text-accent-green">{(msg.outputTokens || 0).toLocaleString()}</span></span>
                   <span className="text-gray-600">|</span>
-                  <span>Cost <span className="text-accent-orange">{calcTokenCost(msg.model || 'sonnet-4.6', msg.inputTokens || 0, msg.outputTokens || 0)}</span></span>
+                  <span>{t('ai.cost')} <span className="text-accent-orange">{calcTokenCost(msg.model || 'sonnet-4.6', msg.inputTokens || 0, msg.outputTokens || 0)}</span></span>
                 </div>
               )}
             </div>
@@ -371,7 +371,7 @@ export default function AIPage() {
             <div className="bg-navy-800 border border-navy-600 rounded-lg px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Loader2 size={14} className="animate-spin" />
-                <span className="transition-all duration-300">{statusMessage || 'Processing...'}</span>
+                <span className="transition-all duration-300">{statusMessage || t('ai.processing')}</span>
               </div>
             </div>
           </div>
@@ -427,8 +427,8 @@ export default function AIPage() {
       {sessionStats.totalQueries > 0 && (
         <div className="border-t border-navy-600 px-6 py-2 bg-navy-900/50 flex items-center gap-4 text-[10px] font-mono text-gray-500">
           <Activity size={11} />
-          <span>{sessionStats.totalQueries} queries</span>
-          <span>avg {sessionStats.avgResponseTime}s</span>
+          <span>{sessionStats.totalQueries} {t('ai.queries')}</span>
+          <span>{t('ai.avg')} {sessionStats.avgResponseTime}s</span>
           <span className={sessionStats.successRate >= 90 ? 'text-accent-green' : 'text-accent-orange'}>{sessionStats.successRate}%</span>
           {Object.entries(sessionStats.routeCounts).slice(0, 4).map(([route, count]) => (
             <span key={route}><span className="text-accent-cyan">{route}</span>:{count}</span>
@@ -445,7 +445,7 @@ export default function AIPage() {
           <span className="flex items-center gap-3 text-sm font-medium text-gray-300">
             <History size={16} className="text-accent-cyan" />
             {t('ai.chatHistory')}
-            <span className="px-2 py-0.5 rounded-full bg-accent-cyan/15 text-accent-cyan text-xs font-mono">{historyData.length}건</span>
+            <span className="px-2 py-0.5 rounded-full bg-accent-cyan/15 text-accent-cyan text-xs font-mono">{t('ai.historyCount', { count: historyData.length })}</span>
           </span>
           {showHistory ? <ChevronDown size={18} className="text-gray-400" /> : <ChevronUp size={18} className="text-gray-400" />}
         </button>
@@ -453,7 +453,7 @@ export default function AIPage() {
         {showHistory && (
           <div className="px-5 py-4 bg-navy-900/30 max-h-80 overflow-y-auto space-y-2">
             {historyData.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-6">아직 대화 이력이 없습니다. 질문을 시작해보세요.</p>
+              <p className="text-sm text-gray-500 text-center py-6">{t('ai.noHistory')}</p>
             ) : (
               historyData.map((conv: any, i: number) => (
                 <div key={conv.id || i}
