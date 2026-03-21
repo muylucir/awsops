@@ -650,7 +650,20 @@ function recordAndSave(p: {
 // ============================================================================
 export async function POST(request: NextRequest) {
   const reqBody = await request.json();
-  const { messages, model: modelKey, stream: useStream } = reqBody;
+  const { messages, model: modelKey, stream: useStream, lang: clientLang } = reqBody;
+
+  // i18n status messages / 다국어 상태 메시지
+  const isEn = clientLang === 'en';
+  const STATUS = {
+    classifying: isEn ? '🔍 Analyzing question...' : '🔍 질문 분석 중...',
+    multiRoute: (names: string) => isEn ? `📡 Multi-route: ${names}` : `📡 멀티 라우트: ${names}`,
+    connecting: (display: string) => isEn ? `📡 Connecting to ${display}...` : `📡 ${display} 연결 중...`,
+    sqlRetrying: isEn ? '🔄 Retrying with corrected SQL...' : '🔄 SQL 수정 후 재시도...',
+    analyzing: (count: number) => isEn ? `📊 Analyzing ${count} rows of data...` : `📊 ${count}건 데이터 분석 중...`,
+    synthesizing: (count: number) => isEn ? `📊 Synthesizing ${count} responses...` : `📊 ${count}개 응답 합성 중...`,
+    gatewayTimeout: isEn ? '🔄 Gateway timeout, switching to Bedrock Direct...' : '🔄 Gateway 타임아웃, Bedrock Direct로 전환...',
+    fallback: isEn ? '🔄 Bedrock Direct fallback...' : '🔄 Bedrock Direct 폴백...',
+  };
 
   if (!messages || !Array.isArray(messages) || messages.length === 0)
     return NextResponse.json({ error: 'Messages required' }, { status: 400 });
@@ -678,7 +691,7 @@ export async function POST(request: NextRequest) {
 
       try {
         // Step 1: Classify intent (multi-route) / 1단계: 의도 분류 (멀티 라우트)
-        send('status', { step: 'classifying', message: '🔍 질문 분석 중...' });
+        send('status', { step: 'classifying', message: STATUS.classifying });
         const classifyResult = await classifyIntent(messages);
         const routes = classifyResult.routes;
         totalInputTokens += classifyResult.inputTokens;
@@ -688,9 +701,9 @@ export async function POST(request: NextRequest) {
         const lastMessage = messages[messages.length - 1]?.content || '';
         const isMulti = routes.length > 1;
         if (isMulti) {
-          send('status', { step: 'classified', route, routes, message: `📡 멀티 라우트: ${routes.map(r => ROUTE_REGISTRY[r]?.display).join(' + ')}` });
+          send('status', { step: 'classified', route, routes, message: STATUS.multiRoute(routes.map(r => ROUTE_REGISTRY[r]?.display).join(' + ')) });
         } else {
-          send('status', { step: 'classified', route, display: config.display, message: `📡 ${config.display} 연결 중...` });
+          send('status', { step: 'classified', route, display: config.display, message: STATUS.connecting(config.display) });
         }
 
         // Step 2: Route to handler / 2단계: 핸들러로 라우팅
@@ -744,7 +757,7 @@ export async function POST(request: NextRequest) {
             queryResult = await queryAWS(sql);
             if (!queryResult.error) break;
             if (attempt === 0) {
-              send('status', { step: 'sql-retrying', message: '🔄 SQL 수정 후 재시도...' });
+              send('status', { step: 'sql-retrying', message: STATUS.sqlRetrying });
               const fixMessages = [
                 ...messages.slice(-4),
                 { role: 'assistant' as const, content: `I generated this SQL: ${sql}` },
@@ -755,7 +768,7 @@ export async function POST(request: NextRequest) {
           }
 
           if (sql && queryResult && !queryResult.error) {
-            send('status', { step: 'analyzing', message: `📊 ${queryResult.rowCount}건 데이터 분석 중...` });
+            send('status', { step: 'analyzing', message: STATUS.analyzing(queryResult.rowCount) });
             const contextData = `\n\n--- LIVE AWS RESOURCE DATA (${queryResult.rowCount} rows) ---\nSQL: ${sql}\n\`\`\`json\n${queryResult.data}\n\`\`\``;
             const bedrockMessages = messages.slice(-10).map((m: any) => ({ role: m.role, content: m.content }));
             bedrockMessages[bedrockMessages.length - 1].content += contextData;
@@ -781,7 +794,7 @@ export async function POST(request: NextRequest) {
             controller.close();
             return;
           }
-          send('status', { step: 'sql-fallback', message: '⚠️ SQL 실패, AgentCore로 전환...' });
+          send('status', { step: 'sql-fallback', message: isEn ? '⚠️ SQL failed, switching to AgentCore...' : '⚠️ SQL 실패, AgentCore로 전환...' });
         }
 
         // Handler: AgentCore Gateway — single or multi / AgentCore 게이트웨이 — 단일 또는 멀티
@@ -814,7 +827,7 @@ export async function POST(request: NextRequest) {
           const dedupedTools = Array.from(new Set(allUsedTools));
 
           if (successful.length > 1) {
-            send('status', { step: 'synthesizing', message: `📊 ${successful.length}개 응답 합성 중...` });
+            send('status', { step: 'synthesizing', message: STATUS.synthesizing(successful.length) });
             const lastMsg = messages[messages.length - 1]?.content || '';
             const synthesized = await synthesizeResponses(lastMsg, successful, modelKey);
             // 합성된 응답에서도 추가 도구 추출 / Extract additional tools from synthesized response
@@ -838,7 +851,7 @@ export async function POST(request: NextRequest) {
             });
           } else {
             // 모든 Gateway 실패 → Bedrock Direct 폴백 / All gateways failed → Bedrock Direct fallback
-            send('status', { step: 'fallback', message: '🔄 Gateway 타임아웃, Bedrock Direct로 전환...' });
+            send('status', { step: 'fallback', message: STATUS.gatewayTimeout });
             const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
             const fallbackBody = JSON.stringify({
               anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT,
@@ -902,7 +915,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Fallback: Bedrock Direct / 폴백: Bedrock 직접
-        send('status', { step: 'fallback', message: '🔄 Bedrock Direct 폴백...' });
+        send('status', { step: 'fallback', message: STATUS.fallback });
         const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
         const body = JSON.stringify({
           anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096, system: SYSTEM_PROMPT,

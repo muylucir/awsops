@@ -33,7 +33,7 @@ function calcTokenCost(model: string, inputTokens: number, outputTokens: number)
 }
 
 export default function AIPage() {
-  const { t } = useLanguage();
+  const { lang, t } = useLanguage();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -101,6 +101,7 @@ export default function AIPage() {
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
           model,
           stream: true,
+          lang,
         }),
       });
 
