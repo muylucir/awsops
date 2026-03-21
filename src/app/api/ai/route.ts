@@ -241,14 +241,20 @@ Respond with ONLY a JSON object: {"routes": ["<route>"]} or {"routes": ["<route1
 
 const CLASSIFICATION_PROMPT = buildClassificationPrompt();
 
-const SYSTEM_PROMPT = `You are AWSops AI Assistant, an expert in AWS cloud operations.
+const BASE_SYSTEM_PROMPT = `You are AWSops AI Assistant, an expert in AWS cloud operations.
 You help users understand and manage their AWS infrastructure.
 You have access to real-time AWS resource data via Steampipe queries.
 When users ask about their resources, analyze the data provided.
 Always be concise and provide actionable insights.
 Format responses in markdown for readability.
-When discussing security issues, prioritize them by severity.
-Respond in the same language as the user's question.`;
+When discussing security issues, prioritize them by severity.`;
+
+// Language-aware system prompt / 언어 인식 시스템 프롬프트
+function getSystemPrompt(lang?: string): string {
+  if (lang === 'en') return BASE_SYSTEM_PROMPT + '\nAlways respond in English regardless of the input language.';
+  if (lang === 'ko') return BASE_SYSTEM_PROMPT + '\nAlways respond in Korean (한국어) regardless of the input language.';
+  return BASE_SYSTEM_PROMPT + '\nRespond in the same language as the user\'s question.';
+}
 
 // ============================================================================
 // Intent classification / 의도 분류
@@ -674,6 +680,8 @@ export async function POST(request: NextRequest) {
     agentcoreProgress: (display: string, sec: number) => isEn ? `🤖 Running ${display} tools... (${sec}s)` : `🤖 ${display} 도구 실행 중... (${sec}s)`,
   };
 
+  const SYSTEM_PROMPT = getSystemPrompt(clientLang);
+
   if (!messages || !Array.isArray(messages) || messages.length === 0)
     return NextResponse.json({ error: 'Messages required' }, { status: 400 });
 
@@ -683,7 +691,7 @@ export async function POST(request: NextRequest) {
   // Non-streaming mode: return JSON (backward compatible for test scripts)
   // 비스트리밍 모드: JSON 반환 (테스트 스크립트 하위 호환)
   if (!useStream) {
-    return handleNonStreaming(messages, modelKey);
+    return handleNonStreaming(messages, modelKey, clientLang);
   }
 
   // Streaming mode: SSE events / 스트리밍 모드: SSE 이벤트
@@ -819,7 +827,7 @@ export async function POST(request: NextRequest) {
           }, 15000);
 
           const results = await Promise.allSettled(
-            routes.map(r => handleSingleRoute(r, messages, modelKey))
+            routes.map(r => handleSingleRoute(r, messages, modelKey, clientLang))
           );
           clearInterval(multiKeepInterval);
           const successful: { route: string; content: string; via: string }[] = [];
@@ -838,7 +846,7 @@ export async function POST(request: NextRequest) {
           if (successful.length > 1) {
             send('status', { step: 'synthesizing', message: STATUS.synthesizing(successful.length) });
             const lastMsg = messages[messages.length - 1]?.content || '';
-            const synthesized = await synthesizeResponses(lastMsg, successful, modelKey);
+            const synthesized = await synthesizeResponses(lastMsg, successful, modelKey, clientLang);
             // 합성된 응답에서도 추가 도구 추출 / Extract additional tools from synthesized response
             const synthesizedTools = extractUsedTools(synthesized);
             const finalTools = Array.from(new Set([...dedupedTools, ...synthesizedTools]));
@@ -965,8 +973,9 @@ export async function POST(request: NextRequest) {
 // Single route handler / 단일 라우트 핸들러
 // ============================================================================
 async function handleSingleRoute(
-  route: RouteType, messages: Array<{role: string; content: string}>, modelKey?: string
+  route: RouteType, messages: Array<{role: string; content: string}>, modelKey?: string, lang?: string
 ): Promise<{ content: string; via: string; queriedResources: string[]; usedTools?: string[] } | null> {
+  const SYSTEM_PROMPT = getSystemPrompt(lang);
   const config = ROUTE_REGISTRY[route];
   const lastMessage = messages[messages.length - 1]?.content || '';
 
@@ -1039,14 +1048,15 @@ async function handleSingleRoute(
 // Synthesize multi-route responses / 멀티 라우트 응답 합성
 // ============================================================================
 async function synthesizeResponses(
-  question: string, responses: { route: string; content: string; via: string }[], modelKey?: string
+  question: string, responses: { route: string; content: string; via: string }[], modelKey?: string, lang?: string
 ): Promise<string> {
+  const SYSTEM_PROMPT = getSystemPrompt(lang);
   const modelId = MODELS[modelKey || 'sonnet-4.6'] || MODELS['sonnet-4.6'];
   const parts = responses.map(r => `--- ${r.via} ---\n${r.content}`).join('\n\n');
   const body = JSON.stringify({
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 4096,
-    system: SYSTEM_PROMPT + `\n\nYou are synthesizing answers from multiple AWS service agents. Combine them into one coherent, well-structured response. Do not repeat information. Use the user's language.`,
+    system: SYSTEM_PROMPT + `\n\nYou are synthesizing answers from multiple AWS service agents. Combine them into one coherent, well-structured response. Do not repeat information.`,
     messages: [
       { role: 'user', content: `Question: ${question}\n\nMultiple agents responded:\n\n${parts}\n\nPlease synthesize into one comprehensive answer.` },
     ],
@@ -1062,7 +1072,8 @@ async function synthesizeResponses(
 // ============================================================================
 // Non-streaming handler — supports multi-route / 비스트리밍 — 멀티 라우트 지원
 // ============================================================================
-async function handleNonStreaming(messages: Array<{role: string; content: string}>, modelKey?: string) {
+async function handleNonStreaming(messages: Array<{role: string; content: string}>, modelKey?: string, lang?: string) {
+  const SYSTEM_PROMPT = getSystemPrompt(lang);
   try {
     const classifyResult = await classifyIntent(messages);
     const routes = classifyResult.routes;
@@ -1071,7 +1082,7 @@ async function handleNonStreaming(messages: Array<{role: string; content: string
 
     // Single route (most common) / 단일 라우트 (일반적)
     if (routes.length === 1) {
-      const result = await handleSingleRoute(primaryRoute, messages, modelKey);
+      const result = await handleSingleRoute(primaryRoute, messages, modelKey, lang);
       if (result) {
         return NextResponse.json({
           content: result.content, model: modelKey || 'sonnet-4.6',
@@ -1099,7 +1110,7 @@ async function handleNonStreaming(messages: Array<{role: string; content: string
     // Multi-route: parallel execution + synthesis / 멀티 라우트: 병렬 실행 + 합성
     console.log(`[Multi-Route] ${routes.join(' + ')}`);
     const results = await Promise.allSettled(
-      routes.map(r => handleSingleRoute(r, messages, modelKey))
+      routes.map(r => handleSingleRoute(r, messages, modelKey, lang))
     );
 
     const successful: { route: string; content: string; via: string }[] = [];
@@ -1128,7 +1139,7 @@ async function handleNonStreaming(messages: Array<{role: string; content: string
 
     // Multiple successes → synthesize / 복수 성공 → 합성
     const lastMsg = messages[messages.length - 1]?.content || '';
-    const synthesized = await synthesizeResponses(lastMsg, successful, modelKey);
+    const synthesized = await synthesizeResponses(lastMsg, successful, modelKey, lang);
     const viaList = successful.map(s => s.via).join(' + ');
 
     return NextResponse.json({
