@@ -15,8 +15,9 @@ next-env.d.ts
 .env*.local
 *.pem
 
-# steampipe
+# steampipe / powerpipe
 powerpipe/.powerpipe/
+powerpipe/.mod.cache.json
 
 # resource inventory snapshots (auto-generated daily)
 data/inventory/
