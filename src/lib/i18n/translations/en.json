@@ -717,6 +717,8 @@
   "agentcore.noCallHistory": "No call history yet",
   "agentcore.searchBtn": "Search",
   "agentcore.historyCount": "{count}",
+  "agentcore.cache": "AgentCore Cache",
+  "agentcore.originalFetch": "Original fetch",
 
   "ec2.subtitle2": "Elastic Compute Cloud",
   "ec2.searchPlaceholder": "Search (ID, Name, IP...)",

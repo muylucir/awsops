@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Activity, Cpu, Wifi, Box, Shield, DollarSign, Database, Network, Terminal, Zap, BarChart3, Clock, Wrench, MessageSquare, Search } from 'lucide-react';
+import { Activity, Cpu, Wifi, Box, Shield, DollarSign, Database, Network, Terminal, Zap, BarChart3, Clock, Wrench, MessageSquare, Search, RefreshCw } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const GATEWAY_ICONS: Record<string, any> = {
@@ -23,6 +23,7 @@ export default function AgentCorePage() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [memorySearch, setMemorySearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [cacheInfo, setCacheInfo] = useState<any>(null);
 
   const fetchStatus = () => {
     setLoading(true);
@@ -30,10 +31,12 @@ export default function AgentCorePage() {
       fetch('/awsops/api/agentcore').then(r => r.json()),
       fetch('/awsops/api/agentcore?action=stats').then(r => r.json()),
       fetch('/awsops/api/agentcore?action=conversations&limit=20').then(r => r.json()),
-    ]).then(([statusData, statsData, convData]) => {
+      fetch('/awsops/api/agentcore?action=cache-status').then(r => r.json()),
+    ]).then(([statusData, statsData, convData, cacheData]) => {
       if (!statusData.error) setStatus(statusData);
       setStats(statsData);
       setConversations(convData.conversations || []);
+      setCacheInfo({ ...cacheData, fromCache: statusData.fromCache || false, fetchDurationSec: statusData.fetchDurationSec });
     }).catch(() => {}).finally(() => setLoading(false));
   };
 
@@ -300,6 +303,44 @@ export default function AgentCorePage() {
           <p>  → SQL:    <span className="text-accent-orange">Bedrock</span> → SQL generate → <span className="text-accent-cyan">Steampipe pg Pool</span></p>
         </div>
       </div>
+
+      {/* Cache Status Bar / 캐시 상태 바 */}
+      {cacheInfo && (
+        <div className="flex items-center gap-4 px-4 py-2.5 rounded-lg bg-navy-800/60 border border-navy-600/50 text-[11px] font-mono text-gray-500">
+          <div className="flex items-center gap-1.5">
+            <RefreshCw size={12} className="text-gray-600" />
+            <span className="text-gray-400">{t('agentcore.cache')}</span>
+          </div>
+          {cacheInfo.fromCache ? (
+            <>
+              <span className="text-accent-green">Cache hit</span>
+              <span className="text-gray-600">|</span>
+              <span>{t('dashboard.lastCached')}: <span className="text-accent-cyan">{cacheInfo.cachedAt ? getTimeAgo(cacheInfo.cachedAt, t) : '-'}</span></span>
+              <span className="text-gray-600">|</span>
+              <span>TTL: <span className="text-gray-300">{cacheInfo.ttlRemaining > 0 ? `${cacheInfo.ttlRemaining}s` : 'expired'}</span></span>
+              <span className="text-gray-600">|</span>
+              <span>{t('agentcore.originalFetch')}: <span className="text-gray-300">{cacheInfo.fetchDurationSec || '-'}s</span></span>
+            </>
+          ) : (
+            <>
+              <span className="text-accent-orange">Fresh fetch</span>
+              {cacheInfo.fetchDurationSec && (
+                <>
+                  <span className="text-gray-600">|</span>
+                  <span>{t('dashboard.duration')}: <span className="text-accent-cyan">{cacheInfo.fetchDurationSec}s</span></span>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function getTimeAgo(isoString: string, t: (key: string, params?: any) => string): string {
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (diff < 60) return t('dashboard.secondsAgo', { count: diff });
+  if (diff < 3600) return t('dashboard.minutesAgo', { count: Math.floor(diff / 60) });
+  return t('dashboard.hoursAgo', { count: Math.floor(diff / 3600) });
 }
