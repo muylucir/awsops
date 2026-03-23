@@ -58,12 +58,12 @@ def get_client(service, region='ap-northeast-2', role_arn=None, session_suffix=N
         service: AWS service name (e.g., 'ec2', 'iam')
         region: AWS region
         role_arn: Full IAM Role ARN (arn:aws:iam::XXXX:role/RoleName)
-        session_suffix: Optional suffix for AssumeRole session name
+        session_suffix: Optional suffix for AssumeRole session name (defaults to service name)
     """
     if not role_arn:
         return boto3.client(service, region_name=region)
 
-    creds = _assume_role(role_arn, session_suffix)
+    creds = _assume_role(role_arn, session_suffix or service)
     return boto3.client(service, region_name=region, **creds)
 
 
@@ -72,5 +72,5 @@ def get_resource(service, region='ap-northeast-2', role_arn=None):
     if not role_arn:
         return boto3.resource(service, region_name=region)
 
-    creds = _assume_role(role_arn)
+    creds = _assume_role(role_arn, service)
     return boto3.resource(service, region_name=region, **creds)

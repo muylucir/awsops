@@ -245,6 +245,9 @@ export async function PUT(request: NextRequest) {
       try {
         const awsConfigPath = `${homedir()}/.aws/config`;
         const roleArn = `arn:aws:iam::${accountId}:role/AWSopsReadOnlyRole`;
+        if (!/^arn:aws:iam::\d{12}:role\/[\w+=,.@-]+$/.test(roleArn)) {
+          return NextResponse.json({ error: 'Invalid role ARN constructed' }, { status: 400 });
+        }
         const profileBlock = `\n[profile ${profileName}]\nrole_arn = ${roleArn}\ncredential_source = Ec2InstanceMetadata\nregion = ${accountRegion}\n`;
 
         let existingConfig = '';

@@ -23,6 +23,14 @@ export default function AccountSelector() {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
+  // Static class map to prevent Tailwind purge issues with dynamic classes
+  const COLOR_BG: Record<string, string> = {
+    host: 'bg-green-400',
+    target: 'bg-cyan-400',
+    purple: 'bg-purple-400',
+    orange: 'bg-orange-400',
+  };
+
   if (accounts.length === 0) return null;
 
   const current = currentAccountId === ALL_ACCOUNTS
@@ -43,7 +51,7 @@ export default function AccountSelector() {
             <path strokeWidth="1.5" d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10A15.3 15.3 0 0112 2z" />
           </svg>
         ) : (
-          <span className={`w-2 h-2 rounded-full shrink-0 ${current.isHost ? 'bg-green-400' : 'bg-cyan-400'}`} />
+          <span className={`w-2 h-2 rounded-full shrink-0 ${current.isHost ? COLOR_BG.host : COLOR_BG.target}`} />
         )}
         <span className="truncate text-gray-200">{current.alias}</span>
         <svg className={`w-3 h-3 ml-auto shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -74,7 +82,7 @@ export default function AccountSelector() {
               onClick={() => { setCurrentAccountId(acc.accountId); setOpen(false); }}
               className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-navy-600 transition-colors ${currentAccountId === acc.accountId ? 'text-cyan-400' : 'text-gray-300'}`}
             >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${acc.isHost ? 'bg-green-400' : 'bg-cyan-400'}`} />
+              <span className={`w-2 h-2 rounded-full shrink-0 ${acc.isHost ? COLOR_BG.host : COLOR_BG.target}`} />
               <span className="truncate">{acc.alias}</span>
               <span className="text-gray-500 text-xs ml-auto shrink-0">...{acc.accountId.slice(-4)}</span>
             </button>

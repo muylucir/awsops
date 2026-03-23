@@ -64,7 +64,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          # Cost Explorer (not in ReadOnlyAccess)
+          # Cost Explorer (not in ReadOnlyAccess) — service-level actions, account-scoped
           - Sid: CostExplorerAccess
             Effect: Allow
             Action:
@@ -74,15 +74,15 @@ Resources:
               - 'ce:GetTags'
               - 'ce:GetReservationUtilization'
               - 'ce:GetSavingsPlansUtilization'
-            Resource: '*'
-          # Budgets
+            Resource: !Sub 'arn:aws:ce::${AWS::AccountId}:*'
+          # Budgets — account-scoped
           - Sid: BudgetsAccess
             Effect: Allow
             Action:
               - 'budgets:ViewBudget'
               - 'budgets:DescribeBudget*'
-            Resource: '*'
-          # Pricing (not in ReadOnlyAccess)
+            Resource: !Sub 'arn:aws:budgets::${AWS::AccountId}:*'
+          # Pricing (global service, requires *)
           - Sid: PricingAccess
             Effect: Allow
             Action:
@@ -90,22 +90,22 @@ Resources:
               - 'pricing:DescribeServices'
               - 'pricing:GetAttributeValues'
             Resource: '*'
-          # CloudWatch extended (Log Insights query)
+          # CloudWatch Logs Insights — account-scoped
           - Sid: CloudWatchLogsInsights
             Effect: Allow
             Action:
               - 'logs:StartQuery'
               - 'logs:GetQueryResults'
               - 'logs:StopQuery'
-            Resource: '*'
-          # IAM policy simulation (for Security Gateway)
+            Resource: !Sub 'arn:aws:logs:*:${AWS::AccountId}:log-group:*'
+          # IAM policy simulation — account-scoped
           - Sid: IAMPolicySimulation
             Effect: Allow
             Action:
               - 'iam:SimulatePrincipalPolicy'
               - 'iam:SimulateCustomPolicy'
-            Resource: '*'
-          # Network reachability analysis
+            Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:*'
+          # Network reachability analysis — account-scoped
           - Sid: ReachabilityAnalysis
             Effect: Allow
             Action:
@@ -113,7 +113,7 @@ Resources:
               - 'ec2:StartNetworkInsightsAnalysis'
               - 'ec2:DeleteNetworkInsightsPath'
               - 'ec2:DeleteNetworkInsightsAnalysis'
-            Resource: '*'
+            Resource: !Sub 'arn:aws:ec2:*:${AWS::AccountId}:*'
 
 Outputs:
   RoleArn:
