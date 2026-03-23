@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -113,11 +114,17 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { lang, setLang, t } = useLanguage();
   const [costEnabled, setCostEnabled] = useState(true);
+  const [customerLogo, setCustomerLogo] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/awsops/api/steampipe?action=config')
       .then(r => r.json())
-      .then(d => setCostEnabled(d.costEnabled !== false))
+      .then(d => {
+        setCostEnabled(d.costEnabled !== false);
+        if (d.customerLogo) setCustomerLogo(d.customerLogo);
+        if (d.customerName) setCustomerName(d.customerName);
+      })
       .catch(() => {});
   }, []);
 
@@ -156,6 +163,20 @@ export default function Sidebar() {
 
   return (
     <aside className="w-60 min-w-[240px] h-screen bg-navy-800 border-r border-navy-600 flex flex-col shrink-0">
+      {/* Customer Logo (from config) / 고객 로고 (config에서 읽기) */}
+      {customerLogo && (
+        <div className="px-5 py-3 border-b border-navy-600 flex items-center justify-center bg-white/95">
+          <Image
+            src={`/logos/${customerLogo}`}
+            alt={customerName || 'Customer'}
+            width={180}
+            height={40}
+            className="object-contain max-h-[40px]"
+            priority
+          />
+        </div>
+      )}
+
       {/* Logo + Language Toggle + Sign Out / 로고 + 언어 전환 + 로그아웃 */}
       <div className="px-5 py-4 border-b border-navy-600 flex items-center justify-between">
         <div>
