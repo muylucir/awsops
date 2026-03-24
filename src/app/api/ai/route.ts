@@ -652,6 +652,26 @@ function sseEvent(event: string, data: any): string {
 }
 
 // ============================================================================
+// Simulated streaming: send pre-generated text as chunks for typing effect
+// 시뮬레이션 스트리밍: 완성된 텍스트를 청크로 나눠 타이핑 효과 구현
+// ============================================================================
+const CHUNK_SIZE = 50;  // Characters per chunk / 청크당 글자 수
+const CHUNK_DELAY_MS = 15; // Delay between chunks (ms) / 청크 간 딜레이
+
+async function simulateStreaming(
+  text: string,
+  send: (event: string, data: any) => void,
+): Promise<void> {
+  for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+    const chunk = text.slice(i, i + CHUNK_SIZE);
+    send('chunk', { delta: chunk });
+    if (i + CHUNK_SIZE < text.length) {
+      await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+    }
+  }
+}
+
+// ============================================================================
 // Bedrock streaming helper: stream response chunks as SSE events
 // Bedrock 스트리밍 헬퍼: 응답 청크를 SSE 이벤트로 전송
 // ============================================================================
@@ -911,6 +931,8 @@ export async function POST(request: NextRequest) {
             send('status', { step: 'synthesizing', message: STATUS.synthesizing(successful.length) });
             const lastMsg = messages[messages.length - 1]?.content || '';
             const synthesized = await synthesizeResponses(lastMsg, successful, modelKey, clientLang);
+            // Simulate streaming for synthesized response / 합성 응답 타이핑 시뮬레이션
+            await simulateStreaming(synthesized, send);
             // 합성된 응답에서도 추가 도구 추출 / Extract additional tools from synthesized response
             const synthesizedTools = extractUsedTools(synthesized);
             const finalTools = Array.from(new Set([...dedupedTools, ...synthesizedTools]));
@@ -924,6 +946,7 @@ export async function POST(request: NextRequest) {
               inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             });
           } else if (successful.length === 1) {
+            await simulateStreaming(successful[0].content, send);
             send('done', {
               content: successful[0].content, model: modelKey || 'sonnet-4.6',
               via: successful[0].via, queriedResources: allResources, route, routes,
@@ -980,6 +1003,8 @@ export async function POST(request: NextRequest) {
             .trim();
           const responseTimeMs = Date.now() - callStartTime;
           const finalContent = cleanedResponse || agentResponse;
+          // Simulate streaming for AgentCore responses / AgentCore 응답 타이핑 시뮬레이션
+          await simulateStreaming(finalContent, send);
           recordAndSave({ route, gateway, responseTimeMs, usedTools, success: true, via: `AgentCore → ${config.display}`, question: lastMessage, summary: finalContent, userId: currentUser.email, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, model: modelKey || 'sonnet-4.6' });
           send('done', {
             content: finalContent, model: 'sonnet-4.6',
