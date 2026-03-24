@@ -479,3 +479,297 @@ function getAgentRuntimeArn(): string {
 `agent.py` 내부의 Gateway URL도 계정별로 다릅니다. 이 부분은 config.json이 아닌 Docker 이미지에 포함되므로, **새 계정 배포 시 Docker 재빌드가 필요**합니다.
 
 </details>
+
+<details>
+<summary>MCP 프로토콜이란? 도구 디스커버리는 어떻게 동작하나요?</summary>
+
+### MCP (Model Context Protocol)
+
+MCP는 AI 에이전트가 외부 도구를 **표준화된 방식으로 호출**하기 위한 프로토콜입니다. AWSops에서는 Strands Agent가 MCP를 통해 Gateway의 125개 도구에 접근합니다.
+
+```mermaid
+flowchart LR
+  AGENT["Strands Agent<br/>(agent.py)"] -->|"1. list_tools"| GW["Gateway"]
+  GW -->|"도구 목록 반환"| AGENT
+  AGENT -->|"2. call_tool(name, args)"| GW
+  GW -->|"3. mcp.lambda"| LAMBDA["Lambda 함수"]
+  LAMBDA -->|"4. 결과 반환"| GW
+  GW -->|"5. 결과 전달"| AGENT
+```
+
+### SigV4 서명 통신
+
+Gateway 연결은 AWS SigV4 서명이 필요합니다:
+
+```python
+# agent/agent.py
+def create_gateway_transport(gateway_url):
+    """SigV4 서명된 HTTP 전송 생성"""
+    access_key, secret_key, session_token = get_aws_credentials()
+    credentials = Credentials(access_key, secret_key, session_token)
+    return streamablehttp_client_with_sigv4(
+        url=gateway_url,
+        credentials=credentials,
+        service="bedrock-agentcore",
+        region=GATEWAY_REGION,
+    )
+```
+
+### 도구 디스커버리 (Tool Discovery)
+
+Agent가 Gateway에 연결하면 **페이지네이션**으로 전체 도구 목록을 조회합니다:
+
+```python
+# agent/agent.py
+def get_all_tools(client):
+    """MCP 클라이언트에서 페이지네이션으로 모든 도구 조회"""
+    tools = []
+    more = True
+    token = None
+    while more:
+        batch = client.list_tools_sync(pagination_token=token)
+        tools.extend(batch)
+        if batch.pagination_token is None:
+            more = False
+        else:
+            token = batch.pagination_token
+    return tools
+```
+
+### 도구 실행 흐름
+
+```python
+# Gateway 연결 → 도구 조회 → Agent 실행
+mcp_client = MCPClient(lambda: create_gateway_transport(gateway_url))
+with mcp_client:
+    tools = get_all_tools(mcp_client)           # 도구 목록 조회
+    agent = Agent(model=model, tools=tools)      # LLM에 도구 제공
+    response = agent(user_input)                 # LLM이 도구 선택/실행
+```
+
+LLM(Bedrock)이 사용자 질문을 보고 **어떤 도구를 호출할지 스스로 결정**합니다. 개발자가 도구 선택 로직을 작성할 필요가 없습니다.
+
+</details>
+
+<details>
+<summary>Gateway에 새 도구(Lambda)를 추가하려면?</summary>
+
+### 전체 흐름
+
+```mermaid
+flowchart LR
+  CODE["Lambda 함수 작성"] --> DEPLOY["Lambda 배포"]
+  DEPLOY --> TARGET["Gateway Target 생성<br/>(create_targets.py)"]
+  TARGET --> REBUILD["agent.py Docker 재빌드"]
+```
+
+### Step 1: Lambda 함수 작성
+
+`agent/lambda/` 디렉토리에 새 Python 파일을 생성합니다:
+
+```python
+# agent/lambda/my_new_mcp.py
+import json
+import boto3
+
+def lambda_handler(event, context):
+    params = event if isinstance(event, dict) else json.loads(event)
+    t = params.get("tool_name", "")
+    args = params.get("arguments", params)
+
+    if t == "my_new_tool":
+        client = boto3.client('ec2')
+        result = client.describe_instances(**args)
+        return {"statusCode": 200, "body": json.dumps(result, default=str)}
+
+    return {"statusCode": 400, "body": "Unknown tool"}
+```
+
+### Step 2: Gateway Target 생성
+
+`agent/lambda/create_targets.py`에 도구 스키마를 추가합니다:
+
+```python
+# 도구 스키마 형식
+tools = [{
+    "name": "my_new_tool",
+    "description": "새 도구 설명",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "param1": {"type": "string", "description": "파라미터 설명"},
+        },
+        "required": ["param1"]
+    }
+}]
+
+# Gateway Target 생성
+create_target(
+    gw_id=find_gateway('ops'),     # 대상 Gateway
+    name='my-new-target',
+    fn='awsops-my-new-mcp',        # Lambda 함수 이름
+    desc='My new tool description',
+    tools=tools
+)
+```
+
+핵심 설정:
+
+```python
+# create_targets.py 내부
+client.create_gateway_target(
+    gatewayIdentifier=gw_id,
+    targetConfiguration={
+        'mcp': {'lambda': {
+            'lambdaArn': arn,
+            'toolSchema': {'inlinePayload': tools}  # 도구 스키마
+        }}
+    },
+    credentialProviderConfigurations=[
+        {'credentialProviderType': 'GATEWAY_IAM_ROLE'}  # 필수
+    ]
+)
+```
+
+### Step 3: Docker 재빌드
+
+새 도구가 추가되면 Agent가 `list_tools`로 자동 발견합니다. Docker 재빌드는 agent.py 자체를 수정한 경우에만 필요합니다.
+
+:::tip 크로스 어카운트 지원
+`create_targets.py`가 모든 도구에 자동으로 `target_account_id` 파라미터를 주입합니다. Lambda에서 `cross_account.py`의 `get_client()`를 사용하면 STS AssumeRole로 다른 계정의 리소스에 접근할 수 있습니다.
+:::
+
+</details>
+
+<details>
+<summary>Lambda 도구 함수는 어떤 구조인가요?</summary>
+
+### Lambda 구조 패턴
+
+모든 19개 Lambda 함수는 동일한 MCP 핸들러 패턴을 따릅니다:
+
+```python
+# 공통 패턴 (예: agent/lambda/aws_cost_mcp.py)
+def lambda_handler(event, context):
+    # 1. 이벤트 파싱 + 도구 라우팅
+    params = event if isinstance(event, dict) else json.loads(event)
+    t = params.get("tool_name", "")
+    args = params.get("arguments", params)
+
+    # 2. 크로스 어카운트 지원
+    target_account_id = args.pop('target_account_id', None)
+    role_arn = get_role_arn(target_account_id) if target_account_id else None
+
+    # 3. 도구별 분기
+    if t == "get_cost_and_usage":
+        ce = get_client('ce', 'us-east-1', role_arn)
+        resp = ce.get_cost_and_usage(...)
+        return ok(resp)
+    elif t == "get_cost_forecast":
+        ...
+    else:
+        return err("Unknown tool")
+```
+
+### 19개 Lambda 구성
+
+| Lambda 파일 | Gateway | 도구 수 | 설명 |
+|------------|---------|--------|------|
+| `network_mcp.py` | Network | 15 | VPC, TGW, VPN, ENI, Firewall |
+| `reachability.py` | Network | 1 | Reachability Analyzer |
+| `flowmonitor.py` | Network | 1 | VPC Flow Logs |
+| `aws_eks_mcp.py` | Container | 9 | EKS, CloudWatch, IAM |
+| `aws_ecs_mcp.py` | Container | 3 | ECS 클러스터/서비스/태스크 |
+| `aws_istio_mcp.py` | Container | 12 | Istio CRD (VPC Lambda) |
+| `aws_iac_mcp.py` | IaC | 7 | CloudFormation, CDK |
+| `aws_terraform_mcp.py` | IaC | 5 | Terraform Provider/Module |
+| `aws_dynamodb_mcp.py` | Data | 6 | DynamoDB |
+| `aws_rds_mcp.py` | Data | 6 | RDS/Aurora |
+| `aws_valkey_mcp.py` | Data | 6 | ElastiCache |
+| `aws_msk_mcp.py` | Data | 6 | MSK Kafka |
+| `aws_iam_mcp.py` | Security | 14 | IAM |
+| `aws_cloudwatch_mcp.py` | Monitoring | 11 | CloudWatch |
+| `aws_cloudtrail_mcp.py` | Monitoring | 5 | CloudTrail |
+| `aws_cost_mcp.py` | Cost | 9 | Cost Explorer |
+| `aws_knowledge.py` | Ops | 5 | AWS 문서 |
+| `aws_core_mcp.py` | Ops | 3 | CLI, 프롬프트 |
+| VPC Lambda | Ops | 1 | Steampipe SQL |
+
+### 공유 모듈: `cross_account.py`
+
+크로스 어카운트 접근을 위한 STS AssumeRole 헬퍼:
+
+```python
+# 크로스 어카운트 클라이언트 생성
+client = get_client('ec2', 'ap-northeast-2', role_arn)
+# → STS AssumeRole → 임시 자격 증명으로 boto3 클라이언트 생성
+# → 자격 증명 50분 캐싱으로 반복 호출 최적화
+```
+
+### 규칙
+
+- 모든 Lambda는 **읽기 전용** (Reachability 경로 생성 제외)
+- VPC Lambda(Istio, Steampipe)는 `psycopg2` 대신 `pg8000` 사용
+- 도구 스키마 형식: `{name, description, inputSchema: {type, properties, required}}`
+
+</details>
+
+<details>
+<summary>AgentCore Runtime 상태는 어떻게 모니터링하나요?</summary>
+
+### 상태 조회 API
+
+`/api/agentcore` API가 Runtime, Gateway, Code Interpreter 상태를 조회합니다:
+
+```typescript
+// src/app/api/agentcore/route.ts
+const [runtimeRaw, gatewaysRaw] = await Promise.all([
+  awsCli(['bedrock-agentcore-control', 'get-agent-runtime',
+          '--agent-runtime-id', getRuntimeId()]),
+  awsCli(['bedrock-agentcore-control', 'list-gateways']),
+]);
+```
+
+### Runtime 상태
+
+| 상태 | 의미 | 조치 |
+|------|------|------|
+| **READY** | 정상 작동 | - |
+| **CREATING** | 최초 생성 중 | 수 분 대기 |
+| **UPDATING** | 업데이트 중 (Docker 이미지 변경 등) | 수 분 대기 |
+| **FAILED** | 오류 — 컨테이너 시작 실패 | Docker 이미지/IAM Role/네트워크 확인 |
+
+### 대시보드 UI
+
+AgentCore 페이지(`/awsops/agentcore`)에서 확인 가능한 정보:
+
+```mermaid
+flowchart TD
+  subgraph STATUS["실시간 상태"]
+    RT["Runtime 상태<br/>READY / FAILED"]
+    GW["Gateway 8개<br/>각각 상태 표시"]
+    CI["Code Interpreter<br/>상태"]
+  end
+
+  subgraph STATS["호출 통계"]
+    TOTAL["총 호출 수"]
+    AVG["평균 응답 시간"]
+    ROUTE["라우트별 분포"]
+    TOOLS["사용된 도구"]
+  end
+
+  subgraph HISTORY["대화 이력"]
+    SEARCH["키워드 검색"]
+    LIST["최근 대화 목록"]
+  end
+```
+
+### 상태 캐싱
+
+상태 조회 결과는 **5분간 캐시**됩니다. 새로고침 버튼으로 즉시 갱신할 수 있습니다:
+
+```typescript
+const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+```
+
+</details>

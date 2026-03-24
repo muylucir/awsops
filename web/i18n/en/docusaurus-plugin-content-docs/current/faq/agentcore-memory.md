@@ -479,3 +479,297 @@ function getAgentRuntimeArn(): string {
 Gateway URLs inside `agent.py` also differ per account. Since these are included in the Docker image, **Docker rebuild is required** when deploying to a new account.
 
 </details>
+
+<details>
+<summary>What is MCP protocol? How does tool discovery work?</summary>
+
+### MCP (Model Context Protocol)
+
+MCP is a protocol for AI agents to **invoke external tools in a standardized way**. In AWSops, the Strands Agent accesses 125 tools across Gateways via MCP.
+
+```mermaid
+flowchart LR
+  AGENT["Strands Agent<br/>(agent.py)"] -->|"1. list_tools"| GW["Gateway"]
+  GW -->|"Tool list returned"| AGENT
+  AGENT -->|"2. call_tool(name, args)"| GW
+  GW -->|"3. mcp.lambda"| LAMBDA["Lambda Function"]
+  LAMBDA -->|"4. Result returned"| GW
+  GW -->|"5. Result forwarded"| AGENT
+```
+
+### SigV4 Signed Communication
+
+Gateway connections require AWS SigV4 signing:
+
+```python
+# agent/agent.py
+def create_gateway_transport(gateway_url):
+    """Create SigV4-signed HTTP transport"""
+    access_key, secret_key, session_token = get_aws_credentials()
+    credentials = Credentials(access_key, secret_key, session_token)
+    return streamablehttp_client_with_sigv4(
+        url=gateway_url,
+        credentials=credentials,
+        service="bedrock-agentcore",
+        region=GATEWAY_REGION,
+    )
+```
+
+### Tool Discovery
+
+When the Agent connects to a Gateway, it retrieves the full tool list via **pagination**:
+
+```python
+# agent/agent.py
+def get_all_tools(client):
+    """Retrieve all tools from MCP client with pagination"""
+    tools = []
+    more = True
+    token = None
+    while more:
+        batch = client.list_tools_sync(pagination_token=token)
+        tools.extend(batch)
+        if batch.pagination_token is None:
+            more = False
+        else:
+            token = batch.pagination_token
+    return tools
+```
+
+### Tool Execution Flow
+
+```python
+# Gateway connection → tool discovery → Agent execution
+mcp_client = MCPClient(lambda: create_gateway_transport(gateway_url))
+with mcp_client:
+    tools = get_all_tools(mcp_client)           # Discover tools
+    agent = Agent(model=model, tools=tools)      # Provide tools to LLM
+    response = agent(user_input)                 # LLM selects/executes tools
+```
+
+The LLM (Bedrock) examines the user's question and **decides which tools to call on its own**. Developers don't need to write tool selection logic.
+
+</details>
+
+<details>
+<summary>How do I add a new tool (Lambda) to a Gateway?</summary>
+
+### Overall Flow
+
+```mermaid
+flowchart LR
+  CODE["Write Lambda Function"] --> DEPLOY["Deploy Lambda"]
+  DEPLOY --> TARGET["Create Gateway Target<br/>(create_targets.py)"]
+  TARGET --> REBUILD["Rebuild agent.py Docker"]
+```
+
+### Step 1: Write the Lambda Function
+
+Create a new Python file in the `agent/lambda/` directory:
+
+```python
+# agent/lambda/my_new_mcp.py
+import json
+import boto3
+
+def lambda_handler(event, context):
+    params = event if isinstance(event, dict) else json.loads(event)
+    t = params.get("tool_name", "")
+    args = params.get("arguments", params)
+
+    if t == "my_new_tool":
+        client = boto3.client('ec2')
+        result = client.describe_instances(**args)
+        return {"statusCode": 200, "body": json.dumps(result, default=str)}
+
+    return {"statusCode": 400, "body": "Unknown tool"}
+```
+
+### Step 2: Create Gateway Target
+
+Add the tool schema in `agent/lambda/create_targets.py`:
+
+```python
+# Tool schema format
+tools = [{
+    "name": "my_new_tool",
+    "description": "New tool description",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "param1": {"type": "string", "description": "Parameter description"},
+        },
+        "required": ["param1"]
+    }
+}]
+
+# Create Gateway Target
+create_target(
+    gw_id=find_gateway('ops'),     # Target Gateway
+    name='my-new-target',
+    fn='awsops-my-new-mcp',        # Lambda function name
+    desc='My new tool description',
+    tools=tools
+)
+```
+
+Key configuration:
+
+```python
+# Inside create_targets.py
+client.create_gateway_target(
+    gatewayIdentifier=gw_id,
+    targetConfiguration={
+        'mcp': {'lambda': {
+            'lambdaArn': arn,
+            'toolSchema': {'inlinePayload': tools}  # Tool schema
+        }}
+    },
+    credentialProviderConfigurations=[
+        {'credentialProviderType': 'GATEWAY_IAM_ROLE'}  # Required
+    ]
+)
+```
+
+### Step 3: Docker Rebuild
+
+Once the new tool is added, the Agent automatically discovers it via `list_tools`. Docker rebuild is only needed if agent.py itself was modified.
+
+:::tip Cross-Account Support
+`create_targets.py` automatically injects a `target_account_id` parameter to all tools. Use `cross_account.py`'s `get_client()` in Lambda to access resources in other accounts via STS AssumeRole.
+:::
+
+</details>
+
+<details>
+<summary>What is the structure of Lambda tool functions?</summary>
+
+### Lambda Structure Pattern
+
+All 19 Lambda functions follow the same MCP handler pattern:
+
+```python
+# Common pattern (e.g., agent/lambda/aws_cost_mcp.py)
+def lambda_handler(event, context):
+    # 1. Event parsing + tool routing
+    params = event if isinstance(event, dict) else json.loads(event)
+    t = params.get("tool_name", "")
+    args = params.get("arguments", params)
+
+    # 2. Cross-account support
+    target_account_id = args.pop('target_account_id', None)
+    role_arn = get_role_arn(target_account_id) if target_account_id else None
+
+    # 3. Per-tool branching
+    if t == "get_cost_and_usage":
+        ce = get_client('ce', 'us-east-1', role_arn)
+        resp = ce.get_cost_and_usage(...)
+        return ok(resp)
+    elif t == "get_cost_forecast":
+        ...
+    else:
+        return err("Unknown tool")
+```
+
+### 19 Lambda Functions
+
+| Lambda File | Gateway | Tools | Description |
+|------------|---------|-------|-------------|
+| `network_mcp.py` | Network | 15 | VPC, TGW, VPN, ENI, Firewall |
+| `reachability.py` | Network | 1 | Reachability Analyzer |
+| `flowmonitor.py` | Network | 1 | VPC Flow Logs |
+| `aws_eks_mcp.py` | Container | 9 | EKS, CloudWatch, IAM |
+| `aws_ecs_mcp.py` | Container | 3 | ECS clusters/services/tasks |
+| `aws_istio_mcp.py` | Container | 12 | Istio CRD (VPC Lambda) |
+| `aws_iac_mcp.py` | IaC | 7 | CloudFormation, CDK |
+| `aws_terraform_mcp.py` | IaC | 5 | Terraform Provider/Module |
+| `aws_dynamodb_mcp.py` | Data | 6 | DynamoDB |
+| `aws_rds_mcp.py` | Data | 6 | RDS/Aurora |
+| `aws_valkey_mcp.py` | Data | 6 | ElastiCache |
+| `aws_msk_mcp.py` | Data | 6 | MSK Kafka |
+| `aws_iam_mcp.py` | Security | 14 | IAM |
+| `aws_cloudwatch_mcp.py` | Monitoring | 11 | CloudWatch |
+| `aws_cloudtrail_mcp.py` | Monitoring | 5 | CloudTrail |
+| `aws_cost_mcp.py` | Cost | 9 | Cost Explorer |
+| `aws_knowledge.py` | Ops | 5 | AWS docs |
+| `aws_core_mcp.py` | Ops | 3 | CLI, prompts |
+| VPC Lambda | Ops | 1 | Steampipe SQL |
+
+### Shared Module: `cross_account.py`
+
+STS AssumeRole helper for cross-account access:
+
+```python
+# Cross-account client creation
+client = get_client('ec2', 'ap-northeast-2', role_arn)
+# → STS AssumeRole → create boto3 client with temporary credentials
+# → Credential caching for 50 minutes to optimize repeated calls
+```
+
+### Rules
+
+- All Lambdas are **read-only** (except Reachability path creation)
+- VPC Lambda (Istio, Steampipe) uses `pg8000` instead of `psycopg2`
+- Tool schema format: `{name, description, inputSchema: {type, properties, required}}`
+
+</details>
+
+<details>
+<summary>How do I monitor AgentCore Runtime status?</summary>
+
+### Status Query API
+
+The `/api/agentcore` API queries Runtime, Gateway, and Code Interpreter status:
+
+```typescript
+// src/app/api/agentcore/route.ts
+const [runtimeRaw, gatewaysRaw] = await Promise.all([
+  awsCli(['bedrock-agentcore-control', 'get-agent-runtime',
+          '--agent-runtime-id', getRuntimeId()]),
+  awsCli(['bedrock-agentcore-control', 'list-gateways']),
+]);
+```
+
+### Runtime Status
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| **READY** | Running normally | - |
+| **CREATING** | Initial creation in progress | Wait a few minutes |
+| **UPDATING** | Updating (Docker image change, etc.) | Wait a few minutes |
+| **FAILED** | Error — container failed to start | Check Docker image/IAM Role/network |
+
+### Dashboard UI
+
+Information available on the AgentCore page (`/awsops/agentcore`):
+
+```mermaid
+flowchart TD
+  subgraph STATUS["Real-time Status"]
+    RT["Runtime Status<br/>READY / FAILED"]
+    GW["8 Gateways<br/>Individual status"]
+    CI["Code Interpreter<br/>Status"]
+  end
+
+  subgraph STATS["Call Statistics"]
+    TOTAL["Total Calls"]
+    AVG["Average Response Time"]
+    ROUTE["Per-Route Distribution"]
+    TOOLS["Tools Used"]
+  end
+
+  subgraph HISTORY["Conversation History"]
+    SEARCH["Keyword Search"]
+    LIST["Recent Conversations"]
+  end
+```
+
+### Status Caching
+
+Status query results are **cached for 5 minutes**. Use the refresh button for immediate updates:
+
+```typescript
+const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+```
+
+</details>

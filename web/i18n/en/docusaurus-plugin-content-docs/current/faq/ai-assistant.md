@@ -119,6 +119,10 @@ Currently, there is no direct deletion feature in the UI. Request an administrat
 rm data/memory/<user-sub>/*
 ```
 
+:::info Technical Details
+Memory Store internals (in-memory cache + debounced flush) and per-user separation are covered in the [AgentCore & Memory FAQ](./agentcore-memory).
+:::
+
 </details>
 
 <details>
@@ -174,6 +178,10 @@ Lambda functions execute as backends for each Gateway.
 **Tool Usage Display**
 The UI shows which tools were used in AI responses. This is inferred based on keywords in the response content.
 
+:::info Technical Details
+Gateway↔Lambda relationship, MCP protocol internals, and how to add new tools are covered in the [AgentCore & Memory FAQ](./agentcore-memory).
+:::
+
 </details>
 
 <details>
@@ -206,5 +214,9 @@ AI responses are streamed via SSE (Server-Sent Events). Text is displayed in rea
 **Timeout**
 - Default timeout: 120 seconds
 - If timeout occurs, simplify the question or try again
+
+:::info Technical Details
+TTFT (Time To First Token) components and optimization strategies are covered in the [Architecture Deep Dive](./architecture).
+:::
 
 </details>
