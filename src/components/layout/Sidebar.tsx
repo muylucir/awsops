@@ -115,6 +115,7 @@ export default function Sidebar() {
   const [costEnabled, setCostEnabled] = useState(true);
   const [customerLogo, setCustomerLogo] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState<string | null>(null);
+  const [customerLogoBg, setCustomerLogoBg] = useState<string>('dark'); // 'light' for white bg, 'dark' for transparent / 밝은 로고는 light, 어두운 로고는 dark
 
   useEffect(() => {
     fetch('/awsops/api/steampipe?action=config')
@@ -123,6 +124,7 @@ export default function Sidebar() {
         setCostEnabled(d.costEnabled !== false);
         if (d.customerLogo) setCustomerLogo(d.customerLogo);
         if (d.customerName) setCustomerName(d.customerName);
+        if (d.customerLogoBg) setCustomerLogoBg(d.customerLogoBg);
       })
       .catch(() => {});
   }, []);
@@ -164,7 +166,7 @@ export default function Sidebar() {
     <aside className="w-60 min-w-[240px] h-screen bg-navy-800 border-r border-navy-600 flex flex-col shrink-0">
       {/* Customer Logo (from config) / 고객 로고 (config에서 읽기) */}
       {customerLogo && (
-        <div className="px-5 py-3 border-b border-navy-600 flex items-center justify-center bg-white/95">
+        <div className={`px-5 py-3 border-b border-navy-600 flex items-center justify-center ${customerLogoBg === 'light' ? 'bg-white/95' : ''}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`/awsops/logos/${customerLogo}`}

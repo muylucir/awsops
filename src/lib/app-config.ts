@@ -21,6 +21,7 @@ export interface AppConfig {
   opencostEndpoint?: string;   // OpenCost API endpoint (Phase 2) / OpenCost API 엔드포인트 (2단계)
   customerLogo?: string;       // Customer logo path in public/logos/ (e.g. "autoever.png") / 고객 로고 경로
   customerName?: string;       // Customer name displayed next to logo / 로고 옆에 표시할 고객명
+  customerLogoBg?: string;     // Logo background: "light" (white bg) or "dark" (transparent) / 로고 배경: light=흰색, dark=투명
 }
 
 const DEFAULT_CONFIG: AppConfig = {
