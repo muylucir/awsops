@@ -3,7 +3,7 @@
 // Runs on server start + every 4 minutes (before 5-min cache TTL expires)
 // 서버 시작 시 + 4분마다 실행 (5분 캐시 TTL 만료 전)
 
-import { batchQuery, checkCostAvailability } from '@/lib/steampipe';
+import { batchQuery, checkCostAvailability, startZombieCleanup } from '@/lib/steampipe';
 import { getAccounts, isMultiAccount } from '@/lib/app-config';
 import { queries as ec2Q } from '@/lib/queries/ec2';
 import { queries as s3Q } from '@/lib/queries/s3';
@@ -161,6 +161,10 @@ export function startCacheWarmer(): void {
 
   status.startedAt = new Date().toISOString();
   console.log('[CacheWarmer] Starting background cache warming (interval: 4min)');
+
+  // Start zombie connection cleanup alongside cache warmer
+  // 캐시 워머와 함께 좀비 연결 정리 시작
+  startZombieCleanup();
 
   // Initial warm after 5s delay (let server fully start) / 서버 시작 5초 후 초기 워밍
   setTimeout(() => {
