@@ -37,6 +37,7 @@ import {
   SearchCode,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';

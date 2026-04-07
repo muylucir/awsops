@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
 
     const dbUrl = getDbUrl();
     const tmpFile = `${resultFile}.tmp`;
+    const errorFile = `${resultFile}.error`;
     // Powerpipe exits with code 2 when controls have alarms — this is expected.
     // Check output file validity instead of relying on exit code.
     // Note: exec() is used here intentionally — the command requires shell features
