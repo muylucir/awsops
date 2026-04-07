@@ -60,8 +60,8 @@ const navGroups: NavGroup[] = [
     items: [
       { labelKey: 'sidebar.dashboard', href: '/', icon: LayoutDashboard },
       { labelKey: 'sidebar.aiAssistant', href: '/ai', icon: BrainCircuit },
-      { labelKey: 'sidebar.agentcore', href: '/agentcore', icon: Activity },
       { labelKey: 'sidebar.diagnosis', href: '/ai-diagnosis', icon: ClipboardCheck },
+      { labelKey: 'sidebar.agentcore', href: '/agentcore', icon: Activity },
       { labelKey: 'sidebar.accounts', href: '/accounts', icon: Layers },
     ],
   },
