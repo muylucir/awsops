@@ -14,10 +14,15 @@
       "Bash(git push --force:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean -f:*)",
+      "Bash(git branch -D:*)",
       "Bash(chmod 777:*)",
       "Bash(eval:*)",
       "Bash(shutdown:*)",
-      "Bash(reboot:*)"
+      "Bash(reboot:*)",
+      "Bash(curl*|*bash:*)",
+      "Bash(curl*|*sh:*)",
+      "Bash(wget*|*bash:*)",
+      "Bash(wget*|*sh:*)"
     ]
   },
   "skills": {
