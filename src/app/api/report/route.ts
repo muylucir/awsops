@@ -21,11 +21,7 @@ import { randomUUID } from 'crypto';
 const bedrockClient = new BedrockRuntimeClient({ region: 'ap-northeast-2' });
 const s3Client = new S3Client({ region: 'ap-northeast-2' });
 const MODEL_ID = 'global.anthropic.claude-opus-4-6-v1';
-// Read bucket from config — no hardcoded account IDs
-import { getConfig } from '@/lib/app-config';
-function getReportBucket(): string {
-  return getConfig().reportBucket || process.env.REPORT_BUCKET || '';
-}
+const REPORT_BUCKET = 'awsops-deploy-180294183052';
 const REPORT_S3_PREFIX = 'reports/';
 const REPORTS_META_DIR = path.join(process.cwd(), 'data', 'reports');
 
@@ -35,6 +31,7 @@ const REPORTS_META_DIR = path.join(process.cwd(), 'data', 'reports');
 
 interface SectionResult {
   section: string;
+  key: string;
   title: string;
   content: string;
 }
@@ -132,9 +129,8 @@ function markStaleReportsAsFailed(): void {
         const meta: ReportMeta = JSON.parse(fs.readFileSync(path.join(REPORTS_META_DIR, file), 'utf-8'));
         if (meta.status === 'generating') {
           const created = new Date(meta.createdAt).getTime();
-          // If generating for more than 30 minutes, it's stale (worker died)
-          // Opus 모델 15섹션 기준 최대 25분 소요 가능 → 30분으로 설정
-          if (now - created > 30 * 60 * 1000) {
+          // If generating for more than 15 minutes, it's stale (worker died)
+          if (now - created > 15 * 60 * 1000) {
             updateReportMeta(meta.reportId, {
               status: 'failed',
               error: 'Report generation was interrupted (server restart). Please start a new diagnosis.',
@@ -220,7 +216,7 @@ async function analyzeSection(
   // 부록: Bedrock 호출 없이 인벤토리 데이터를 직접 포맷
   if (section === 'appendix') {
     const context = await formatReportForBedrock(data, 'appendix');
-    return { section, title, content: context || (isEn ? 'No inventory data.' : '인벤토리 데이터가 없습니다.') };
+    return { section, key: section, title, content: context || (isEn ? 'No inventory data.' : '인벤토리 데이터가 없습니다.') };
   }
 
   // Build context from formatReportForBedrock
@@ -239,6 +235,7 @@ async function analyzeSection(
   if (!context || context.includes('No data') || context.trim() === '') {
     return {
       section,
+      key: section,
       title,
       content: isEn ? 'No data available for this section.' : '이 섹션에 대한 데이터가 없습니다.',
     };
@@ -263,28 +260,18 @@ async function analyzeSection(
     ],
   });
 
-  // 5-minute timeout per section — prevents infinite hang on Bedrock throttling/slowness
-  // 섹션당 5분 타임아웃 — Bedrock 쓰로틀링/지연 시 무한 대기 방지
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 5 * 60 * 1000);
+  const resp = await bedrockClient.send(
+    new InvokeModelCommand({
+      modelId: MODEL_ID,
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: new TextEncoder().encode(body),
+    }),
+  );
 
-  try {
-    const resp = await bedrockClient.send(
-      new InvokeModelCommand({
-        modelId: MODEL_ID,
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: new TextEncoder().encode(body),
-      }),
-      { abortSignal: abortController.signal },
-    );
-
-    const decoded = JSON.parse(new TextDecoder().decode(resp.body));
-    const text: string = decoded.content?.[0]?.text || '';
-    return { section, title, content: text };
-  } finally {
-    clearTimeout(timeout);
-  }
+  const decoded = JSON.parse(new TextDecoder().decode(resp.body));
+  const text: string = decoded.content?.[0]?.text || '';
+  return { section, key: section, title, content: text };
 }
 
 // ============================================================================
@@ -353,45 +340,38 @@ async function generateReportBackground(
   let completed = 0;
 
   for (const batch of SECTION_BATCHES) {
+    // Update status with sub-topics for each section in the batch
+    const batchTopics = batch.flatMap(s => (SECTION_SUBTOPICS[s] || [s]).slice(0, 2)).join(', ');
     console.log(`[Report] ${reportId} — Batch: ${batch.join(', ')}`);
-
-    // Wrap each section call to update progress immediately on completion
-    // 각 섹션 호출을 래핑하여 완료 즉시 progress 업데이트
-    const wrappedCalls = batch.map(section => {
-      // Update progress when this section starts analyzing
-      const topics = (SECTION_SUBTOPICS[section] || [section]).slice(0, 3).join(', ');
-      updateReportMeta(reportId, {
-        progress: { current: completed, total: 15, currentSection: section, statusMessage: topics, completedSections },
-      });
-
-      return analyzeSection(section, reportData, !!isEn, sectionResults)
-        .then(result => {
-          sectionResults.push(result);
-          completed++;
-          completedSections.push(section);
-          updateReportMeta(reportId, {
-            progress: { current: completed, total: 15, currentSection: section, statusMessage: '', completedSections },
-          });
-          console.log(`[Report] ${reportId} — ✓ ${section} (${completed}/15)`);
-          return result;
-        })
-        .catch(err => {
-          const msg = err?.name === 'AbortError'
-            ? (isEn ? 'Analysis timed out (5 min limit)' : '분석 시간 초과 (5분 제한)')
-            : (isEn ? `Analysis failed: ${err?.message || 'Unknown error'}` : `분석 실패: ${err?.message || '알 수 없는 오류'}`);
-          const fallback: SectionResult = { section, title: section, content: msg };
-          sectionResults.push(fallback);
-          completed++;
-          completedSections.push(section);
-          updateReportMeta(reportId, {
-            progress: { current: completed, total: 15, currentSection: section, statusMessage: '', completedSections },
-          });
-          console.warn(`[Report] ${reportId} — ✗ ${section}: ${msg}`);
-          return fallback;
-        });
+    updateReportMeta(reportId, {
+      progress: { current: completed, total: 15, currentSection: batch[0], statusMessage: batchTopics, completedSections },
     });
 
-    await Promise.all(wrappedCalls);
+    const results = await Promise.allSettled(
+      batch.map(section => analyzeSection(section, reportData, !!isEn, sectionResults)),
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'fulfilled') {
+        sectionResults.push(r.value);
+      } else {
+        sectionResults.push({
+          section: batch[i],
+          key: batch[i],
+          title: batch[i],
+          content: isEn
+            ? `Analysis failed: ${r.reason?.message || 'Unknown error'}`
+            : `분석 실패: ${r.reason?.message || '알 수 없는 오류'}`,
+        });
+      }
+      completed++;
+      completedSections.push(batch[i]);
+    }
+
+    updateReportMeta(reportId, {
+      progress: { current: completed, total: 15, currentSection: batch[batch.length - 1], statusMessage: '', completedSections },
+    });
   }
 
   // Reorder: executive-summary first, appendix last
@@ -442,13 +422,13 @@ async function generateReportBackground(
   const s3KeyMd = `${REPORT_S3_PREFIX}${reportId}.md`;
   await Promise.all([
     s3Client.send(new PutObjectCommand({
-      Bucket: getReportBucket(),
+      Bucket: REPORT_BUCKET,
       Key: s3KeyDocx,
       Body: docxBuffer,
       ContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })),
     s3Client.send(new PutObjectCommand({
-      Bucket: getReportBucket(),
+      Bucket: REPORT_BUCKET,
       Key: s3KeyMd,
       Body: mdBuffer,
       ContentType: 'text/markdown; charset=utf-8',
@@ -458,8 +438,8 @@ async function generateReportBackground(
   // Generate presigned URLs (valid for 7 days)
   // 7일간 유효한 사전 서명 URL 생성
   const [downloadUrlDocx, downloadUrlMd] = await Promise.all([
-    getSignedUrl(s3Client, new GetObjectCommand({ Bucket: getReportBucket(), Key: s3KeyDocx }), { expiresIn: 7 * 24 * 60 * 60 }),
-    getSignedUrl(s3Client, new GetObjectCommand({ Bucket: getReportBucket(), Key: s3KeyMd }), { expiresIn: 7 * 24 * 60 * 60 }),
+    getSignedUrl(s3Client, new GetObjectCommand({ Bucket: REPORT_BUCKET, Key: s3KeyDocx }), { expiresIn: 7 * 24 * 60 * 60 }),
+    getSignedUrl(s3Client, new GetObjectCommand({ Bucket: REPORT_BUCKET, Key: s3KeyMd }), { expiresIn: 7 * 24 * 60 * 60 }),
   ]);
 
   updateReportMeta(reportId, {
@@ -473,6 +453,23 @@ async function generateReportBackground(
     downloadUrlMd,
     sections: ordered,
   });
+
+  // Send SNS notification on completion
+  // 완료 시 SNS 알림 발송
+  try {
+    const { notifyReportCompleted } = await import('@/lib/sns-notification');
+    const execSummary = ordered.find((s: SectionResult) => s.key === 'executive-summary');
+    const summaryText = execSummary?.content?.slice(0, 500) || '';
+    await notifyReportCompleted({
+      reportId,
+      accountAlias: accountAlias || undefined,
+      executiveSummary: summaryText,
+      downloadUrlDocx,
+      downloadUrlMd,
+    });
+  } catch {
+    // SNS notification is best-effort; don't fail the report
+  }
 }
 
 // ============================================================================
@@ -625,7 +622,7 @@ export async function GET(request: NextRequest) {
         refreshPromises.push((async () => {
           try {
             downloadUrlDocx = await getSignedUrl(s3Client, new GetObjectCommand({
-              Bucket: getReportBucket(), Key: meta.s3KeyDocx!,
+              Bucket: REPORT_BUCKET, Key: meta.s3KeyDocx!,
             }), { expiresIn: 7 * 24 * 60 * 60 });
           } catch { /* keep existing */ }
         })());
@@ -634,7 +631,7 @@ export async function GET(request: NextRequest) {
         refreshPromises.push((async () => {
           try {
             downloadUrlMd = await getSignedUrl(s3Client, new GetObjectCommand({
-              Bucket: getReportBucket(), Key: meta.s3KeyMd!,
+              Bucket: REPORT_BUCKET, Key: meta.s3KeyMd!,
             }), { expiresIn: 7 * 24 * 60 * 60 });
           } catch { /* keep existing */ }
         })());
@@ -671,7 +668,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const freshUrl = await getSignedUrl(s3Client, new GetObjectCommand({
-        Bucket: getReportBucket(),
+        Bucket: REPORT_BUCKET,
         Key: meta.s3KeyDocx,
       }), { expiresIn: 60 * 60 });
 
@@ -711,7 +708,7 @@ export async function GET(request: NextRequest) {
     if (meta.s3KeyMd) {
       try {
         const freshUrl = await getSignedUrl(s3Client, new GetObjectCommand({
-          Bucket: getReportBucket(), Key: meta.s3KeyMd,
+          Bucket: REPORT_BUCKET, Key: meta.s3KeyMd,
         }), { expiresIn: 60 * 60 });
         return NextResponse.redirect(freshUrl, 302);
       } catch { /* fallback below */ }
