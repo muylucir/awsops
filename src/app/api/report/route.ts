@@ -24,7 +24,7 @@ const MODEL_ID = 'global.anthropic.claude-opus-4-6-v1';
 // Read bucket from config — no hardcoded account IDs
 import { getConfig } from '@/lib/app-config';
 function getReportBucket(): string {
-  return getConfig().reportBucket || process.env.getReportBucket() || '';
+  return getConfig().reportBucket || process.env.REPORT_BUCKET || '';
 }
 const REPORT_S3_PREFIX = 'reports/';
 const REPORTS_META_DIR = path.join(process.cwd(), 'data', 'reports');
@@ -373,8 +373,6 @@ async function generateReportBackground(
   let completed = 0;
 
   for (const batch of SECTION_BATCHES) {
-    // Update status with sub-topics for each section in the batch
-    const batchTopics = batch.flatMap(s => (SECTION_SUBTOPICS[s] || [s]).slice(0, 2)).join(', ');
     console.log(`[Report] ${reportId} — Batch: ${batch.join(', ')}`);
 
     // Wrap each section call to update progress immediately on completion
